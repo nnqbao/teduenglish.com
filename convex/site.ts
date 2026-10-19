@@ -5,7 +5,6 @@ import {
   STUDENT_SESSION_MS,
   allFolders,
   canOpen,
-  doneMapFor,
   fail,
   folderBySlug,
   getSettings,
@@ -13,19 +12,19 @@ import {
   publicSections,
   quizBySlug,
   quizMeta,
+  metaOf,
   randomToken,
   sha256,
   studentByCode,
   studentFromToken,
   studentResource,
-  isMastered,
-  studentQuizAttempts,
   recordingIds,
   cleanAnswers,
   saveAttempt,
 } from "./lib";
 import { awayCount } from "./guard";
-import { classRanking, progressFor } from "./stats";
+import { allCards, doneMap, isLocked, refreshScore, scoreOf, scoresOf, type Card, type Score } from "./summary";
+import { classRanking, progressOf } from "./stats";
 import { SPEAKING_REVIEW_KEY, bandFor, grade, hasEssay, hasSpeak, isAnswered, isCorrect, normCode, wordCount, type Answers } from "./model";
 
 const token = v.optional(v.string());
@@ -37,14 +36,15 @@ function publicStudent(s: { name: string; className: string; folders: string[] }
 /* ---------- reads ---------- */
 
 /** Tests the student started and saved but hasn't submitted (newest first). */
-async function unfinishedFor(ctx: QueryCtx, studentId: Id<"students">, openFolders: string[], lockAtPercent: number) {
+async function unfinishedFor(ctx: QueryCtx, studentId: Id<"students">, openFolders: string[], lockAtPercent: number, cards: Card[], scores: Score[]) {
   const drafts = await ctx.db.query("drafts").withIndex("by_student_quiz", (q) => q.eq("studentId", studentId)).collect();
+  const cardOf = new Map(cards.map((c) => [c.quizId, c]));
+  const scoreOf = new Map(scores.map((s) => [s.quizId, s]));
   const out = [];
   for (const d of drafts.sort((a, b) => b.updatedAt - a.updatedAt)) {
-    const quiz = await ctx.db.get(d.quizId);
-    if (!quiz || !quiz.published || !openFolders.includes(quiz.folder)) continue;
-    if (isMastered(await studentQuizAttempts(ctx, studentId, quiz._id), lockAtPercent)) continue;
-    out.push({ id: quiz.slug, title: quiz.title, folder: quiz.folder, answered: d.answered, total: d.total, updatedAt: d.updatedAt });
+    const c = cardOf.get(d.quizId);
+    if (!c || !c.published || !openFolders.includes(c.folder) || isLocked(scoreOf.get(d.quizId), lockAtPercent)) continue;
+    out.push({ id: c.slug, title: c.title, folder: c.folder, answered: d.answered, total: d.total, updatedAt: d.updatedAt });
   }
   return out;
 }
@@ -69,10 +69,10 @@ export const home = query({
     if (!student) return { ...base, student: null, dashboard: null };
 
     const open = folders.filter((f) => canOpen(student, f.slug)).map((f) => f.slug);
-    const quizzes = (await ctx.db.query("quizzes").collect())
-      .filter((q) => q.published && open.includes(q.folder))
-      .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title))
-      .map(quizMeta);
+    // Quiz cards and score rows are small; reading whole quizzes and attempts here was the main cost.
+    const cards = await allCards(ctx);
+    const scores = await scoresOf(ctx, student._id);
+    const quizzes = cards.filter((c) => c.published && open.includes(c.folder)).map(metaOf);
     const resources = (await ctx.db.query("resources").collect())
       .filter((r) => open.includes(r.folder) && !r.hidden)
       .sort((a, b) => a.order - b.order);
@@ -84,9 +84,9 @@ export const home = query({
         openFolders: open,
         quizzes,
         resources: await Promise.all(resources.map((r) => studentResource(ctx, r))),
-        done: await doneMapFor(ctx, student._id, settings.lockAtPercent),
-        progress: await progressFor(ctx, student),
-        unfinished: await unfinishedFor(ctx, student._id, open, settings.lockAtPercent),
+        done: doneMap(scores, cards, settings.lockAtPercent),
+        progress: progressOf(student, folders, cards, new Set(scores.map((s) => s.quizId))),
+        unfinished: await unfinishedFor(ctx, student._id, open, settings.lockAtPercent, cards, scores),
       },
     };
   },
@@ -107,7 +107,7 @@ export const folder = query({
     const f = await folderBySlug(ctx, args.id);
     if (!f) return null;
     const student = await studentFromToken(ctx, args.token);
-    const quizzes = (await ctx.db.query("quizzes").withIndex("by_folder", (q) => q.eq("folder", f.slug)).collect())
+    const quizzes = (await ctx.db.query("quizCards").withIndex("by_folder", (q) => q.eq("folder", f.slug)).collect())
       .filter((q) => q.published)
       .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title));
     const resources = (await ctx.db.query("resources").withIndex("by_folder", (q) => q.eq("folder", f.slug)).collect())
@@ -119,9 +119,9 @@ export const folder = query({
     return {
       folder: info,
       status: "ok" as const,
-      quizzes: quizzes.map(quizMeta),
+      quizzes: quizzes.map(metaOf),
       resources: await Promise.all(resources.map((r) => studentResource(ctx, r))),
-      done: await doneMapFor(ctx, student._id, (await getSettings(ctx)).lockAtPercent),
+      done: doneMap(await scoresOf(ctx, student._id), quizzes, (await getSettings(ctx)).lockAtPercent),
     };
   },
 });
@@ -159,11 +159,9 @@ export const quiz = query({
     if (!quiz.published) return null;
     if (!student) return { meta, status: "login" as const };
     if (!canOpen(student, quiz.folder)) return { meta, status: "noaccess" as const };
-    const mine = await studentQuizAttempts(ctx, student._id, quiz._id);
-    if (isMastered(mine, lockAtPercent)) {
-      const best = mine.filter((a) => !a.reopened && a.total > 0).sort((a, b) => b.correct / b.total - a.correct / a.total)[0];
-      return { meta, status: "mastered" as const, best: { correct: best.correct, total: best.total, at: best.submittedAt } };
-    }
+    const score = await scoreOf(ctx, student._id, quiz._id);
+    if (score && isLocked(score, lockAtPercent))
+      return { meta, status: "mastered" as const, best: { correct: Math.round((score.openPct / 100) * score.total), total: score.total, at: score.lastAt } };
     if (quiz.code) {
       const unlocked = await ctx.db
         .query("quizUnlocks")
@@ -228,7 +226,7 @@ export const speakUploadUrl = mutation({
     if (!quiz || !student || !quiz.published || !canOpen(student, quiz.folder) || !hasSpeak(quiz.sections))
       fail("Phiên đăng nhập đã hết hạn, em đăng nhập lại để làm bài nói.");
     const { lockAtPercent } = await getSettings(ctx);
-    if (isMastered(await studentQuizAttempts(ctx, student._id, quiz._id), lockAtPercent)) fail("Bài này đã được khoá.");
+    if (isLocked(await scoreOf(ctx, student._id, quiz._id), lockAtPercent)) fail("Bài này đã được khoá.");
     return ctx.storage.generateUploadUrl();
   },
 });
@@ -321,7 +319,7 @@ export const submit = mutation({
     const preview = !studentMayTake && !!(await previewAdmin(ctx, args.adminToken));
     if (!studentMayTake && !preview) fail(student ? "Không tìm thấy bài này." : "Phiên đăng nhập đã hết hạn, em đăng nhập lại để nộp bài.");
     const { lockAtPercent } = await getSettings(ctx);
-    if (!preview && isMastered(await studentQuizAttempts(ctx, student!._id, quiz._id), lockAtPercent))
+    if (!preview && isLocked(await scoreOf(ctx, student!._id, quiz._id), lockAtPercent))
       fail(`Em đã hoàn thành bài này từ ${lockAtPercent}% trở lên nên bài đã được khoá.`);
     if (!preview && quiz.code) {
       const unlocked = await ctx.db
@@ -341,7 +339,10 @@ export const submit = mutation({
       result = grade(quiz.sections, answers);
       band = bandFor(quiz.ielts, result.correct, result.total);
       now = Date.now();
-    } else ({ answers, needsReview: wroteEssay, result, band, now } = await saveAttempt(ctx, quiz, student!._id, args.answers, { durationSec: args.durationSec }));
+    } else {
+      ({ answers, needsReview: wroteEssay, result, band, now } = await saveAttempt(ctx, quiz, student!._id, args.answers, { durationSec: args.durationSec }));
+      await refreshScore(ctx, student!._id, quiz._id);
+    }
 
     // Answers and explanations only for questions the student actually answered; a blank
     // question keeps its answer hidden so it can't be copied on the next try or passed on.

@@ -24,7 +24,8 @@ import {
   verifyPassword,
 } from "./lib";
 import { accentValidator, essayReviewValidator, ieltsValidator, resourceKindValidator, sectionValidator, termValidator, timerValidator } from "./schema";
-import { MAX_AUDIO_BYTES, MAX_PDF_BYTES, SPEAKING_REVIEW_KEY, formatBytes, hasEssay, hasSpeak, isCorrect, normCode, parentCodeFor, questionCount, slugify, validateSections, wordCount, writingBand } from "./model";
+import { cardByQuiz, refreshScore, syncCard } from "./summary";
+import { MAX_AUDIO_BYTES, MAX_PDF_BYTES, SPEAKING_REVIEW_KEY, formatBytes, hasSpeak, isCorrect, normCode, parentCodeFor, slugify, validateSections, wordCount, writingBand, viCompare } from "./model";
 
 const tokenArg = { token: v.string() };
 
@@ -104,12 +105,13 @@ export const overview = query({
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
     const students = await ctx.db.query("students").collect();
-    const quizzes = await ctx.db.query("quizzes").collect();
+    const quizzes = await ctx.db.query("quizCards").collect();
     const resources = await ctx.db.query("resources").collect();
     const folders = await ctx.db.query("folders").collect();
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     const recent = await ctx.db.query("attempts").withIndex("by_submittedAt", (q) => q.gt("submittedAt", weekAgo)).order("desc").collect();
     const latest = recent.slice(0, 12);
+    const look = rowLookups(ctx);
     const pending = await ctx.db.query("attempts").withIndex("by_reviewStatus", (q) => q.eq("reviewStatus", "pending")).collect();
     return {
       counts: {
@@ -123,14 +125,24 @@ export const overview = query({
         activeStudentsWeek: new Set(recent.map((a) => a.studentId)).size,
         pendingReviews: pending.length,
       },
-      latest: await Promise.all(latest.map((a) => attemptRow(ctx, a))),
+      latest: await Promise.all(latest.map((a) => attemptRow(ctx, a, look))),
     };
   },
 });
 
-async function attemptRow(ctx: { db: QueryCtx["db"] }, a: Doc<"attempts">) {
-  const student = await ctx.db.get(a.studentId);
-  const quiz = await ctx.db.get(a.quizId);
+/** Memoised student and quiz-card lookups, so a list of attempts reads each student/quiz once (and no questions). */
+function rowLookups(ctx: QueryCtx) {
+  const students = new Map<Id<"students">, Promise<Doc<"students"> | null>>();
+  const cards = new Map<Id<"quizzes">, Promise<Doc<"quizCards"> | null>>();
+  return {
+    student: (id: Id<"students">) => students.get(id) ?? (students.set(id, ctx.db.get(id)), students.get(id)!),
+    card: (id: Id<"quizzes">) => cards.get(id) ?? (cards.set(id, cardByQuiz(ctx, id)), cards.get(id)!),
+  };
+}
+
+async function attemptRow(ctx: QueryCtx, a: Doc<"attempts">, look = rowLookups(ctx)) {
+  const student = await look.student(a.studentId);
+  const quiz = await look.card(a.quizId);
   return {
     id: a._id,
     studentId: a.studentId,
@@ -199,7 +211,7 @@ export const folders = query({
   args: tokenArg,
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
-    const quizzes = await ctx.db.query("quizzes").collect();
+    const quizzes = await ctx.db.query("quizCards").collect();
     const resources = await ctx.db.query("resources").collect();
     const students = await ctx.db.query("students").collect();
     return (await allFolders(ctx)).map((f) => ({
@@ -278,16 +290,15 @@ export const students = query({
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
     const rows = await ctx.db.query("students").collect();
-    const attempts = await ctx.db.query("attempts").collect();
     const stats = new Map<Id<"students">, { count: number; last: number }>();
-    for (const a of attempts) {
-      const s = stats.get(a.studentId) ?? { count: 0, last: 0 };
-      s.count++;
-      s.last = Math.max(s.last, a.submittedAt);
-      stats.set(a.studentId, s);
+    for (const sc of await ctx.db.query("scores").collect()) {
+      const s = stats.get(sc.studentId) ?? { count: 0, last: 0 };
+      s.count += sc.count;
+      s.last = Math.max(s.last, sc.lastAt);
+      stats.set(sc.studentId, s);
     }
     return rows
-      .sort((a, b) => a.className.localeCompare(b.className, "vi") || a.name.localeCompare(b.name, "vi"))
+      .sort((a, b) => viCompare(a.className, b.className) || viCompare(a.name, b.name))
       .map((s) => ({
         _id: s._id,
         code: s.code,
@@ -450,6 +461,7 @@ export const deleteStudent = mutation({
     for (const u of await ctx.db.query("quizUnlocks").withIndex("by_student_quiz", (q) => q.eq("studentId", args.id)).collect())
       await ctx.db.delete(u._id);
     for (const d of await ctx.db.query("drafts").withIndex("by_student_quiz", (q) => q.eq("studentId", args.id)).collect()) await ctx.db.delete(d._id);
+    for (const s of await ctx.db.query("scores").withIndex("by_student_quiz", (q) => q.eq("studentId", args.id)).collect()) await ctx.db.delete(s._id);
     for (const e of await ctx.db.query("focusEvents").withIndex("by_student_quiz", (q) => q.eq("studentId", args.id)).collect()) await ctx.db.delete(e._id);
     await ctx.db.delete(args.id);
   },
@@ -579,14 +591,22 @@ export const quizzes = query({
   args: tokenArg,
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
-    const rows = await ctx.db.query("quizzes").collect();
-    const attempts = await ctx.db.query("attempts").collect();
+    const rows = await ctx.db.query("quizCards").collect();
+    const byQuiz = new Map<Id<"quizzes">, { count: number; sumPct: number; scored: number }>();
+    for (const s of await ctx.db.query("scores").collect()) {
+      const b = byQuiz.get(s.quizId) ?? { count: 0, sumPct: 0, scored: 0 };
+      b.count += s.count;
+      b.sumPct += s.sumPct;
+      if (s.total > 0) b.scored += s.count;
+      byQuiz.set(s.quizId, b);
+    }
+    const pending = await ctx.db.query("attempts").withIndex("by_reviewStatus", (q) => q.eq("reviewStatus", "pending")).collect();
     return rows
       .sort((a, b) => a.folder.localeCompare(b.folder) || a.order - b.order || a.title.localeCompare(b.title))
       .map((q) => {
-        const mine = attempts.filter((a) => a.quizId === q._id);
+        const b = byQuiz.get(q.quizId);
         return {
-          _id: q._id,
+          _id: q.quizId,
           slug: q.slug,
           folder: q.folder,
           title: q.title,
@@ -596,11 +616,11 @@ export const quizzes = query({
           ielts: q.ielts ?? null,
           term: q.term ?? null,
           published: q.published,
-          questionCount: questionCount(q.sections),
-          hasEssay: hasEssay(q.sections),
-          pendingCount: mine.filter((a) => a.reviewStatus === "pending").length,
-          attemptCount: mine.length,
-          avgPct: mine.length ? Math.round((mine.reduce((s, a) => s + a.correct / (a.total || 1), 0) / mine.length) * 100) : null,
+          questionCount: q.questionCount,
+          hasEssay: q.hasEssay,
+          pendingCount: pending.filter((a) => a.quizId === q.quizId).length,
+          attemptCount: b?.count ?? 0,
+          avgPct: b?.scored ? Math.round(b.sumPct / b.scored) : null,
           updatedAt: q.updatedAt,
         };
       });
@@ -705,12 +725,14 @@ export const saveQuiz = mutation({
       const prev = await ctx.db.get(id);
       if (!prev) fail("Không tìm thấy bài.");
       await ctx.db.replace(id, { ...data, order: prev.order });
+      await syncCard(ctx, id);
       const kept = new Set<string>(quizFileIds(sections));
       await releaseFiles(ctx, quizFileIds(prev.sections).filter((x) => !kept.has(x)), id);
       return { id, slug };
     }
     const inFolder = await ctx.db.query("quizzes").withIndex("by_folder", (q) => q.eq("folder", args.folder)).collect();
     const newId = await ctx.db.insert("quizzes", { ...data, order: inFolder.reduce((m, q) => Math.max(m, q.order), 0) + 1 });
+    await syncCard(ctx, newId);
     return { id: newId, slug };
   },
 });
@@ -726,7 +748,9 @@ export const duplicateQuiz = mutation({
     const { _id, _creationTime, ...rest } = q;
     void _id;
     void _creationTime;
-    return ctx.db.insert("quizzes", { ...rest, slug, title: `${q.title} (bản sao)`, published: false, featured: false, order: q.order + 0.5, updatedAt: Date.now() });
+    const copy = await ctx.db.insert("quizzes", { ...rest, slug, title: `${q.title} (bản sao)`, published: false, featured: false, order: q.order + 0.5, updatedAt: Date.now() });
+    await syncCard(ctx, copy);
+    return copy;
   },
 });
 
@@ -742,6 +766,7 @@ export const deleteQuiz = mutation({
     const quiz = await ctx.db.get(args.id);
     if (!quiz) return;
     await ctx.db.delete(args.id);
+    await syncCard(ctx, args.id); // drops its card and scores
     await releaseFiles(ctx, quizFileIds(quiz.sections), args.id);
   },
 });
@@ -773,7 +798,8 @@ export const attempts = query({
       rows = await ctx.db.query("attempts").withIndex("by_submittedAt").order("desc").take(limit);
     }
     if (args.pendingOnly) rows = rows.filter((r) => r.reviewStatus === "pending");
-    return Promise.all(rows.map((a) => attemptRow(ctx, a)));
+    const look = rowLookups(ctx);
+    return Promise.all(rows.map((a) => attemptRow(ctx, a, look)));
   },
 });
 
@@ -867,6 +893,7 @@ export const reviewAttempt = mutation({
     }
     if (!Object.keys(essayReviews).length) fail("Viết nhận xét hoặc chấm band trước khi lưu.");
     await ctx.db.patch(a._id, { essayReviews, reviewStatus: "done", reviewedAt: Date.now(), reviewedBy: admin.name });
+    await refreshScore(ctx, a.studentId, a.quizId);
   },
 });
 
@@ -879,6 +906,7 @@ export const reopenQuiz = mutation({
     if (!quiz) fail("Không tìm thấy bài.");
     for (const a of await ctx.db.query("attempts").withIndex("by_student", (q) => q.eq("studentId", args.studentId)).collect())
       if (a.quizId === quiz._id && !a.reopened) await ctx.db.patch(a._id, { reopened: true });
+    await refreshScore(ctx, args.studentId, quiz._id);
   },
 });
 
@@ -886,7 +914,10 @@ export const deleteAttempt = mutation({
   args: { token: v.string(), id: v.id("attempts") },
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
+    const a = await ctx.db.get(args.id);
+    if (!a) return;
     await ctx.db.delete(args.id);
+    await refreshScore(ctx, a.studentId, a.quizId);
   },
 });
 

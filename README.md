@@ -1,6 +1,6 @@
 # TEDU English — góc luyện tập cho học sinh
 
-Next.js (App Router) + **Convex Cloud** (deployment `accomplished-dinosaur-190`).
+Next.js (App Router) + **Convex tự host** trên Mac mini (trước 19/10/2026: Convex Cloud).
 Giao diện lấy từ bản thiết kế tĩnh `tedu-english` (đăng nhập bằng mã cá nhân, thư mục bài học,
 bài làm chấm tự động, nghe/đọc IELTS), có thêm backend thật và trang quản trị `/admin`.
 
@@ -34,7 +34,7 @@ app/site.css           CSS gốc của bản thiết kế (giữ nguyên)
 
 ```bash
 npm install
-npm run dev                 # http://localhost:4173 (dùng Convex Cloud trong .env.local)
+npm run dev                 # http://localhost:4173 (dùng Convex trong .env.local)
 npm run convex:deploy       # đẩy thay đổi trong convex/ lên production
 npm run check               # lint + typecheck + test + build
 ```
@@ -42,10 +42,14 @@ npm run check               # lint + typecheck + test + build
 `.env.local` (không commit) cần:
 
 ```
-NEXT_PUBLIC_CONVEX_URL=https://accomplished-dinosaur-190.convex.cloud
+NEXT_PUBLIC_CONVEX_URL=https://teduenglish.com/_convex   # trình duyệt → scripts/server.mjs → Convex
 APP_URL=https://teduenglish.com
-CONVEX_DEPLOY_KEY=prod:accomplished-dinosaur-190|...
+CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3280            # Convex tự host (Docker)
+CONVEX_SELF_HOSTED_ADMIN_KEY='teduenglish-local|...'      # ./generate_admin_key.sh trong container
 ```
+
+Dashboard, danh sách và xếp hạng đọc hai bảng tóm tắt nhỏ (`quizCards`, `scores`, xem `convex/summary.ts`)
+thay vì toàn bộ câu hỏi và bài nộp. Sau khi nạp dữ liệu từ nơi khác: `npx convex run summary:rebuild`.
 
 Lệnh vận hành (chạy trong thư mục dự án):
 

@@ -1,50 +1,27 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { allFolders, canOpen, requireAdmin } from "./lib";
-import { SPEAKING_REVIEW_KEY, bandFor, hasEssay, hasSpeak, maskedName, normCode, parentCodeFor, percent, rankBy, writingTestBand, type IeltsSkill } from "./model";
+import { allFolders, attemptBand, canOpen, requireAdmin, skillOf } from "./lib";
+import { allCards, scoresOf, type Card } from "./summary";
+import { maskedName, normCode, parentCodeFor, percent, rankBy, type IeltsSkill, viCompare } from "./model";
 
 type Ctx = QueryCtx | MutationCtx;
 
 /* ======================= IELTS bands ======================= */
 
-/** From the quiz setting; otherwise Speaking/Writing for recorded or written tests in the IELTS folder. */
-export function skillOf(q: Doc<"quizzes">): IeltsSkill | null {
-  if (q.ielts) return q.ielts;
-  if (q.folder !== "ielts") return null;
-  return hasSpeak(q.sections) ? "speaking" : hasEssay(q.sections) ? "writing" : null;
-}
-
-/** Band of one attempt; Writing needs every task marked, Speaking the teacher's overall band. */
-export function attemptBand(q: Doc<"quizzes">, a: Doc<"attempts">, skill: IeltsSkill): number | null {
-  if (skill === "speaking") return a.essayReviews?.[SPEAKING_REVIEW_KEY]?.band ?? null;
-  if (skill !== "writing") return a.band ?? bandFor(skill, a.correct, a.total);
-  const tasks: (number | undefined)[] = [];
-  q.sections.forEach((sec, si) =>
-    sec.questions.forEach((qq, qi) => {
-      if (qq.type === "essay") tasks.push(a.essayReviews?.[`${si}-${qi}`]?.band);
-    }),
-  );
-  return writingTestBand(tasks);
-}
+export { skillOf, attemptBand };
 
 export type IeltsTest = { id: string; title: string; skill: IeltsSkill; folder: string };
 
-/** Best band per student per IELTS test. */
+/** Best band per student per IELTS test (from the small score rows, not the attempts). */
 export async function ieltsBoard(ctx: Ctx) {
-  const quizzes = (await ctx.db.query("quizzes").collect()).sort((a, b) => a.order - b.order || a.title.localeCompare(b.title));
   const tests: IeltsTest[] = [];
   const scores: Record<string, Record<string, number>> = {};
-  for (const q of quizzes) {
-    const skill = skillOf(q);
-    if (!skill) continue;
-    tests.push({ id: q.slug, title: q.title, skill, folder: q.folder });
-    for (const a of await ctx.db.query("attempts").withIndex("by_quiz", (x) => x.eq("quizId", q._id)).collect()) {
-      const band = attemptBand(q, a, skill);
-      if (band == null) continue;
-      const row = (scores[a.studentId] ??= {});
-      row[q.slug] = Math.max(row[q.slug] ?? 0, band);
-    }
+  for (const c of await allCards(ctx)) {
+    if (!c.skill) continue;
+    tests.push({ id: c.slug, title: c.title, skill: c.skill, folder: c.folder });
+    for (const s of await ctx.db.query("scores").withIndex("by_quiz", (x) => x.eq("quizId", c.quizId)).collect())
+      if (s.band != null) (scores[s.studentId] ??= {})[c.slug] = s.band;
   }
   return { tests, scores };
 }
@@ -104,8 +81,10 @@ export type Progress = {
   pending: { id: string; title: string; folder: string }[];
 };
 
+type ProgressQuiz = Pick<Card, "quizId" | "slug" | "title" | "folder" | "published">;
+
 /** Assigned = published web quizzes in the student's open folders; done = submitted at least once. */
-export function progressOf(student: Doc<"students">, folders: Doc<"folders">[], quizzes: Doc<"quizzes">[], doneQuizIds: Set<Id<"quizzes">>): Progress {
+export function progressOf(student: Doc<"students">, folders: Doc<"folders">[], quizzes: ProgressQuiz[], doneQuizIds: Set<Id<"quizzes">>): Progress {
   const byFolder: Progress["byFolder"] = [];
   const pending: Progress["pending"] = [];
   let total = 0;
@@ -114,9 +93,9 @@ export function progressOf(student: Doc<"students">, folders: Doc<"folders">[], 
     if (!canOpen(student, f.slug)) continue;
     const list = quizzes.filter((q) => q.published && q.folder === f.slug);
     if (!list.length) continue;
-    const d = list.filter((q) => doneQuizIds.has(q._id)).length;
+    const d = list.filter((q) => doneQuizIds.has(q.quizId)).length;
     byFolder.push({ id: f.slug, name: f.name, total: list.length, done: d, rate: percent(d, list.length) });
-    pending.push(...list.filter((q) => !doneQuizIds.has(q._id)).map((q) => ({ id: q.slug, title: q.title, folder: f.name })));
+    pending.push(...list.filter((q) => !doneQuizIds.has(q.quizId)).map((q) => ({ id: q.slug, title: q.title, folder: f.name })));
     total += list.length;
     done += d;
   }
@@ -124,10 +103,8 @@ export function progressOf(student: Doc<"students">, folders: Doc<"folders">[], 
 }
 
 export async function progressFor(ctx: Ctx, student: Doc<"students">) {
-  const folders = await allFolders(ctx);
-  const quizzes = (await ctx.db.query("quizzes").collect()).sort((a, b) => a.order - b.order);
-  const attempts = await ctx.db.query("attempts").withIndex("by_student", (q) => q.eq("studentId", student._id)).collect();
-  return progressOf(student, folders, quizzes, new Set(attempts.map((a) => a.quizId)));
+  const scores = await scoresOf(ctx, student._id);
+  return progressOf(student, await allFolders(ctx), await allCards(ctx), new Set(scores.map((s) => s.quizId)));
 }
 
 /* ======================= admin views ======================= */
@@ -150,17 +127,16 @@ export const attendance = query({
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
     const folders = await allFolders(ctx);
-    const quizzes = await ctx.db.query("quizzes").collect();
-    const attempts = await ctx.db.query("attempts").collect();
+    const quizzes = await allCards(ctx);
     const doneBy = new Map<string, Set<Id<"quizzes">>>();
-    for (const a of attempts) (doneBy.get(a.studentId) ?? doneBy.set(a.studentId, new Set()).get(a.studentId)!).add(a.quizId);
+    for (const s of await ctx.db.query("scores").collect()) (doneBy.get(s.studentId) ?? doneBy.set(s.studentId, new Set()).get(s.studentId)!).add(s.quizId);
     const students = (await ctx.db.query("students").collect()).filter((s) => s.active);
     return students
       .map((s) => {
         const p = progressOf(s, folders, quizzes, doneBy.get(s._id) ?? new Set());
         return { id: s._id, name: s.name, className: s.className, code: s.code, total: p.total, done: p.done, rate: p.rate, byFolder: p.byFolder, pending: p.pending.length };
       })
-      .sort((a, b) => a.className.localeCompare(b.className, "vi") || a.name.localeCompare(b.name, "vi"));
+      .sort((a, b) => viCompare(a.className, b.className) || viCompare(a.name, b.name));
   },
 });
 

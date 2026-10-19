@@ -2,6 +2,9 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
+  SPEAKING_REVIEW_KEY,
+  writingTestBand,
+  type IeltsSkill,
   MAX_ESSAY_CHARS,
   MAX_RECORDING_BYTES,
   bandFor,
@@ -157,6 +160,26 @@ export async function studentByCode(ctx: Ctx, code: string) {
     .first();
 }
 
+/** From the quiz setting; otherwise Speaking/Writing for recorded or written tests in the IELTS folder. */
+export function skillOf(q: Doc<"quizzes">): IeltsSkill | null {
+  if (q.ielts) return q.ielts;
+  if (q.folder !== "ielts") return null;
+  return hasSpeak(q.sections) ? "speaking" : hasEssay(q.sections) ? "writing" : null;
+}
+
+/** Band of one attempt; Writing needs every task marked, Speaking the teacher's overall band. */
+export function attemptBand(q: Doc<"quizzes">, a: Doc<"attempts">, skill: IeltsSkill): number | null {
+  if (skill === "speaking") return a.essayReviews?.[SPEAKING_REVIEW_KEY]?.band ?? null;
+  if (skill !== "writing") return a.band ?? bandFor(skill, a.correct, a.total);
+  const tasks: (number | undefined)[] = [];
+  q.sections.forEach((sec, si) =>
+    sec.questions.forEach((qq, qi) => {
+      if (qq.type === "essay") tasks.push(a.essayReviews?.[`${si}-${qi}`]?.band);
+    }),
+  );
+  return writingTestBand(tasks);
+}
+
 /** Whether leaving this test (another tab or app) warns and then locks the account. */
 export function focusGuardOn(quiz: Doc<"quizzes">): boolean {
   return quiz.focusGuard ?? (quiz.ielts === "reading" || quiz.ielts === "writing" || hasEssay(quiz.sections));
@@ -223,25 +246,43 @@ export async function saveAttempt(
   return { answers, needsReview, result, band, now };
 }
 
-export function quizMeta(quiz: Doc<"quizzes">) {
+/** What a list needs about a quiz: a quiz card (summary.ts) or a full quiz via quizMeta. */
+export type MetaSource = Pick<Doc<"quizzes">, "slug" | "folder" | "title" | "subtitle" | "minutes" | "code" | "featured" | "ielts" | "timer" | "accent" | "speakPrep" | "term"> & {
+  questionCount: number;
+  hasEssay: boolean;
+  hasSpeak: boolean;
+  guard: boolean;
+};
+
+export function metaOf(q: MetaSource) {
   return {
-    id: quiz.slug,
-    folder: quiz.folder,
-    title: quiz.title,
-    subtitle: quiz.subtitle,
-    minutes: quiz.minutes,
-    hasCode: quiz.code !== "",
-    featured: quiz.featured,
-    ielts: quiz.ielts ?? null,
+    id: q.slug,
+    folder: q.folder,
+    title: q.title,
+    subtitle: q.subtitle,
+    minutes: q.minutes,
+    hasCode: q.code !== "",
+    featured: q.featured,
+    ielts: q.ielts ?? null,
+    questionCount: q.questionCount,
+    hasEssay: q.hasEssay,
+    hasSpeak: q.hasSpeak,
+    guard: q.guard,
+    speakPrep: q.speakPrep ?? 15,
+    timer: q.timer ?? (q.minutes > 0 ? "count" : "off"),
+    accent: q.accent ?? "uk",
+    term: q.term ?? null,
+  };
+}
+
+export function quizMeta(quiz: Doc<"quizzes">) {
+  return metaOf({
+    ...quiz,
     questionCount: questionCount(quiz.sections),
     hasEssay: hasEssay(quiz.sections),
     hasSpeak: hasSpeak(quiz.sections),
     guard: focusGuardOn(quiz),
-    speakPrep: quiz.speakPrep ?? 15,
-    timer: quiz.timer ?? (quiz.minutes > 0 ? "count" : "off"),
-    accent: quiz.accent ?? "uk",
-    term: quiz.term ?? null,
-  };
+  });
 }
 
 /** Quiz content for taking it: no answers; essay tips are fine to show up front. */
@@ -315,42 +356,6 @@ export type DoneRecord = {
   /** Best score reached the lock threshold: the quiz is closed for this student. */
   locked: boolean;
 };
-
-/** True when the student's best (non-reopened) auto-graded score reaches the threshold. */
-export function isMastered(attempts: Doc<"attempts">[], lockAtPercent: number): boolean {
-  if (lockAtPercent <= 0) return false;
-  return attempts.some((a) => !a.reopened && a.total > 0 && (a.correct / a.total) * 100 >= lockAtPercent);
-}
-
-export async function studentQuizAttempts(ctx: Ctx, studentId: Id<"students">, quizId: Id<"quizzes">) {
-  return (await ctx.db.query("attempts").withIndex("by_student", (q) => q.eq("studentId", studentId)).collect()).filter((a) => a.quizId === quizId);
-}
-
-export async function doneMapFor(ctx: Ctx, studentId: Id<"students">, lockAtPercent: number) {
-  const attempts = await ctx.db
-    .query("attempts")
-    .withIndex("by_student", (q) => q.eq("studentId", studentId))
-    .order("asc")
-    .collect();
-  const map: Record<string, DoneRecord> = {};
-  const slugs = new Map<Id<"quizzes">, string | null>();
-  for (const a of attempts) {
-    if (!slugs.has(a.quizId)) slugs.set(a.quizId, (await ctx.db.get(a.quizId))?.slug ?? null);
-    const slug = slugs.get(a.quizId);
-    if (!slug) continue;
-    const prev = map[slug];
-    map[slug] = {
-      best: Math.max(prev?.best ?? 0, a.correct),
-      last: a.correct,
-      total: a.total,
-      at: a.submittedAt,
-      count: (prev?.count ?? 0) + 1,
-      review: a.reviewStatus ?? prev?.review ?? null,
-      locked: (prev?.locked ?? false) || isMastered([a], lockAtPercent),
-    };
-  }
-  return map;
-}
 
 /** Resource as shown to a student who may open its folder. */
 export async function studentResource(ctx: Ctx, r: Doc<"resources">) {

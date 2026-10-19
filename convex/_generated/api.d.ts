@@ -21,6 +21,7 @@ import type * as seed from "../seed.js";
 import type * as seedData from "../seedData.js";
 import type * as site from "../site.js";
 import type * as stats from "../stats.js";
+import type * as summary from "../summary.js";
 
 import type {
   ApiFromModules,
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   seedData: typeof seedData;
   site: typeof site;
   stats: typeof stats;
+  summary: typeof summary;
 }>;
 
 /**

@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { syncCard } from "./summary";
 import { internalMutation } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { fail, hashPassword } from "./lib";
@@ -30,13 +31,15 @@ export const content = internalMutation({
       for (const s of seedData.students) await ctx.db.insert("students", { ...s, active: true, note: "Học sinh mẫu", createdAt: now });
     for (const r of seedData.resources)
       await ctx.db.insert("resources", { ...r, kind: r.kind as "exercise" | "game" | "video" | "doc" });
-    for (const q of seedData.quizzes)
-      await ctx.db.insert("quizzes", {
+    for (const q of seedData.quizzes) {
+      const id = await ctx.db.insert("quizzes", {
         ...q,
         ielts: "ielts" in q ? (q.ielts as "listening" | "reading") : undefined,
         sections: q.sections as Doc<"quizzes">["sections"],
         updatedAt: now,
       });
+      await syncCard(ctx, id);
+    }
     return {
       folders: seedData.folders.length,
       students: args.withSampleStudents ? seedData.students.length : 0,
@@ -94,6 +97,7 @@ export const resetStudentProgress = internalMutation({
     if (!student) return { found: false };
     const attempts = await ctx.db.query("attempts").withIndex("by_student", (q) => q.eq("studentId", student._id)).collect();
     for (const a of attempts) await ctx.db.delete(a._id);
+    for (const s of await ctx.db.query("scores").withIndex("by_student_quiz", (q) => q.eq("studentId", student._id)).collect()) await ctx.db.delete(s._id);
     const unlocks = await ctx.db.query("quizUnlocks").withIndex("by_student_quiz", (q) => q.eq("studentId", student._id)).collect();
     for (const u of unlocks) await ctx.db.delete(u._id);
     return { found: true, attempts: attempts.length, unlocks: unlocks.length };

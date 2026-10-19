@@ -278,3 +278,13 @@ export function validateSections(sections: Section[]): string[] {
     errors.push("Bài Speaking chỉ gồm câu hỏi dạng “Nói (thu âm)”. Tách các câu khác sang bài riêng.");
   return errors;
 }
+
+/**
+ * Vietnamese alphabetical order. One shared collator, created on first use: making one per
+ * comparison is very slow, and making it while the code loads would slow down every function.
+ */
+let viCollator: Intl.Collator | null = null;
+export function viCompare(a: string, b: string): number {
+  viCollator ??= new Intl.Collator("vi");
+  return viCollator.compare(a, b);
+}

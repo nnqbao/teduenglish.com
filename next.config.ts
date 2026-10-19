@@ -2,6 +2,15 @@ import type { NextConfig } from "next";
 import path from "node:path";
 
 const isDev = process.env.NODE_ENV !== "production";
+// The browser's Convex address (self-hosted, proxied at teduenglish.com/_convex); websockets need it listed explicitly.
+const convexHost = (() => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_CONVEX_URL ?? "").host;
+  } catch {
+    return "";
+  }
+})();
+const convexSrc = convexHost ? ` https://${convexHost} wss://${convexHost}` : "";
 const scriptSrc = isDev
   ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com"
   : "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com";
@@ -13,7 +22,7 @@ const csp = [
   scriptSrc,
   "font-src 'self' data: https://fonts.gstatic.com",
   "worker-src 'self' blob:",
-  "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://static.cloudflareinsights.com" + (isDev ? " ws:" : ""),
+  "connect-src 'self'" + convexSrc + " https://*.convex.cloud wss://*.convex.cloud https://static.cloudflareinsights.com" + (isDev ? " ws:" : ""),
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

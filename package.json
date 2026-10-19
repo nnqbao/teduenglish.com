@@ -7,7 +7,7 @@
     "dev": "next dev --port 4173",
     "prebuild": "cp node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs public/pdf.worker.min.mjs",
     "build": "next build",
-    "start": "next start --port 4173",
+    "start": "node scripts/server.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

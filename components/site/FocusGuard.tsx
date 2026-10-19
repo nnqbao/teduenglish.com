@@ -128,6 +128,7 @@ export default function FocusGuard({
           return;
         }
         setWarned((n) => n + 1);
+        setNow(Date.now()); // or the first frame shows one second too many
         setPhase(r.status === "countdown" ? { kind: "away", until: leftAt + r.seconds * 1000, seconds: r.seconds } : { kind: "away", until: null, seconds: 0 });
         beep();
         // Wait for the student to come back.

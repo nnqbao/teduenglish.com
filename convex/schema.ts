@@ -91,6 +91,51 @@ export default defineSchema({
     .index("by_parentCode", ["parentCode"])
     .index("by_class", ["className"]),
 
+  // Light copy of each quiz's settings (no questions), for lists and dashboards. Kept by summary.syncCard.
+  quizCards: defineTable({
+    quizId: v.id("quizzes"),
+    slug: v.string(),
+    folder: v.string(),
+    title: v.string(),
+    subtitle: v.string(),
+    minutes: v.number(),
+    code: v.string(),
+    featured: v.boolean(),
+    ielts: ieltsValidator,
+    published: v.boolean(),
+    timer: timerValidator,
+    accent: accentValidator,
+    speakPrep: v.optional(v.number()),
+    term: termValidator,
+    order: v.number(),
+    updatedAt: v.number(),
+    questionCount: v.number(),
+    hasEssay: v.boolean(),
+    hasSpeak: v.boolean(),
+    guard: v.boolean(),
+    skill: v.optional(v.union(v.literal("listening"), v.literal("reading"), v.literal("writing"), v.literal("speaking"))),
+  })
+    .index("by_quiz", ["quizId"])
+    .index("by_folder", ["folder", "order"]),
+
+  // One row per student and quiz summarising their attempts. Kept by summary.refreshScore.
+  scores: defineTable({
+    studentId: v.id("students"),
+    quizId: v.id("quizzes"),
+    count: v.number(),
+    lastAt: v.number(),
+    last: v.number(), // correct answers in the latest attempt
+    total: v.number(), // auto-graded questions
+    best: v.number(), // most correct answers in one attempt
+    bestPct: v.number(),
+    openPct: v.number(), // best % among attempts the teacher hasn't reopened (drives the lock)
+    sumPct: v.number(), // for class averages
+    review: v.optional(v.union(v.literal("pending"), v.literal("done"))), // latest writing/speaking review state
+    band: v.optional(v.number()), // best IELTS band
+  })
+    .index("by_student_quiz", ["studentId", "quizId"])
+    .index("by_quiz", ["quizId"]),
+
   // An unfinished test, saved as the student works so they can carry on later (any device).
   drafts: defineTable({
     studentId: v.id("students"),

@@ -171,13 +171,13 @@ describe("writing & class lists", () => {
   });
 
   it("locks a quiz once the best non-reopened score reaches the threshold", async () => {
-    const { isMastered } = await import("@/convex/lib");
-    const a = (correct: number, total: number, reopened = false) => ({ correct, total, reopened }) as never;
-    expect(isMastered([a(7, 10), a(8, 10)], 80)).toBe(true);
-    expect(isMastered([a(7, 10)], 80)).toBe(false);
-    expect(isMastered([a(9, 10, true)], 80)).toBe(false);
-    expect(isMastered([a(10, 10)], 0)).toBe(false);
-    expect(isMastered([a(0, 0)], 80)).toBe(false);
+    const { isLocked } = await import("@/convex/summary");
+    const s = (openPct: number) => ({ openPct }) as never;
+    expect(isLocked(s(80), 80)).toBe(true);
+    expect(isLocked(s(70), 80)).toBe(false);
+    expect(isLocked(s(0), 80)).toBe(false); // reopened attempts don't count toward openPct
+    expect(isLocked(s(100), 0)).toBe(false);
+    expect(isLocked(null, 80)).toBe(false);
   });
 });
 
@@ -255,7 +255,7 @@ describe("statistics", () => {
     const { progressOf } = await import("@/convex/stats");
     const student = { folders: ["gs10"] } as never;
     const folders = [{ slug: "gs10", name: "Global Success 10" }, { slug: "gs11", name: "Global Success 11" }] as never;
-    const q = (id: string, folder: string, published = true) => ({ _id: id, slug: id, title: id, folder, published, order: 0 });
+    const q = (id: string, folder: string, published = true) => ({ quizId: id, slug: id, title: id, folder, published, order: 0 });
     const quizzes = [...Array.from({ length: 10 }, (_, i) => q(`a${i}`, "gs10")), q("draft", "gs10", false), q("other", "gs11")] as never;
     const p = progressOf(student, folders, quizzes, new Set(["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"]) as never);
     expect([p.done, p.total, p.rate, p.pending.length]).toEqual([8, 10, 80, 2]);

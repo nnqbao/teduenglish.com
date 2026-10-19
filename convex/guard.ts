@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { canOpen, fail, focusGuardOn, quizBySlug, requireAdmin, saveAttempt, studentFromToken } from "./lib";
+import { refreshScore, scoreOf } from "./summary";
 
 /*
  * Guarded tests (IELTS Reading/Writing by default). Leaving the page for another tab or app:
@@ -23,9 +24,7 @@ const answersArg = v.record(v.string(), v.union(v.string(), v.number()));
 
 /** "away" events for this test since the student last submitted it (a reload doesn't reset the count). */
 export async function awayCount(ctx: QueryCtx, studentId: Id<"students">, quiz: Doc<"quizzes">) {
-  const last = (await ctx.db.query("attempts").withIndex("by_student", (q) => q.eq("studentId", studentId)).collect())
-    .filter((a) => a.quizId === quiz._id)
-    .reduce((m, a) => Math.max(m, a.submittedAt), 0);
+  const last = (await scoreOf(ctx, studentId, quiz._id))?.lastAt ?? 0;
   return (
     await ctx.db
       .query("focusEvents")
@@ -37,6 +36,7 @@ export async function awayCount(ctx: QueryCtx, studentId: Id<"students">, quiz: 
 async function lockStudent(ctx: MutationCtx, student: Doc<"students">, quiz: Doc<"quizzes">, answers: Record<string, string | number>, durationSec?: number) {
   if (!student.active) return;
   await saveAttempt(ctx, quiz, student._id, answers, { durationSec, leftQuiz: true });
+  await refreshScore(ctx, student._id, quiz._id);
   await ctx.db.patch(student._id, { active: false, lockedReason: `Rời bài “${quiz.title}” khi đang làm`, lockedAt: Date.now() });
   for (const s of await ctx.db.query("studentSessions").withIndex("by_student", (q) => q.eq("studentId", student._id)).collect()) await ctx.db.delete(s._id);
 }

@@ -2,10 +2,15 @@
 
 ## Kiến trúc đang chạy
 
-- Dữ liệu: Convex Cloud, deployment production `accomplished-dinosaur-190`.
-- Web: Next.js production (`next start`) ở cổng 4173 trên máy Mac, chạy bằng launchd (`ai.teduenglish.web`).
+- Dữ liệu: **Convex tự host trên Mac mini** (Docker/colima, `~/ops/infra/teduenglish-convex`, cổng 3280).
+  Chuyển từ Convex Cloud ngày 19/10/2026 vì gói miễn phí bị khoá do vượt Database I/O.
+  Launchd `ai.teduenglish.convex-selfhost` tự bật lại Docker/Convex nếu bị tắt.
+- Web: `node scripts/server.mjs` (Next.js production + chuyển `/_convex/*` sang Convex, kể cả websocket) ở cổng 4173,
+  chạy bằng launchd (`ai.teduenglish.web`). Trình duyệt dùng `NEXT_PUBLIC_CONVEX_URL=https://teduenglish.com/_convex`.
 - teduenglish.com → Cloudflare Tunnel → `localhost:4173`.
-- Log: `~/ops/logs/ai.teduenglish.web.log` và `.err.log`.
+- Sao lưu: launchd `ai.teduenglish.convex-backup` lúc 01:20 mỗi đêm xuất toàn bộ dữ liệu + file vào
+  `~/ops/backups/teduenglish/convex/` (giữ 30 ngày). Khôi phục: `npx convex import --replace-all <file.zip>`.
+- Log: `~/ops/logs/ai.teduenglish.*.log` và `.err.log`.
 
 ## Cập nhật phiên bản mới
 
