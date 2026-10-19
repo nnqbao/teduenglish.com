@@ -38,6 +38,7 @@ export const cleanup = internalMutation({
     }
     // Uploads that never got attached to a resource, quiz or attempt (form closed before saving, abandoned test).
     for (const r of await ctx.db.query("resources").collect()) if (r.file) used.add(r.file.storageId);
+    for (const d of await ctx.db.query("drafts").collect()) d.files?.forEach((id) => used.add(id));
     for (const q of await ctx.db.query("quizzes").collect()) quizFileIds(q.sections).forEach((id) => used.add(id));
     for (const a of await ctx.db.query("clarifyAnswers").collect()) a.files.forEach((f) => used.add(f.storageId));
     const files = await ctx.db.system.query("_storage").collect();

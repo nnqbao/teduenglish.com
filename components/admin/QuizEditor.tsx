@@ -45,6 +45,7 @@ type Draft = {
   timer: "off" | "count" | "auto";
   accent: "uk" | "us";
   speakPrep: 15 | 30;
+  speakMode: "both" | "practice" | "exam";
   /** null = automatic (on for IELTS Reading/Writing and tests with essays). */
   focusGuard: boolean | null;
   term: "" | "hk1" | "hk2";
@@ -178,6 +179,7 @@ function fromDoc(d: Doc<"quizzes"> & { fileUrls: Record<string, string> }): Draf
     timer: d.timer ?? (d.minutes > 0 ? "count" : "off"),
     accent: d.accent ?? "uk",
     speakPrep: d.speakPrep === 30 ? 30 : 15,
+    speakMode: d.speakMode ?? "both",
     focusGuard: d.focusGuard ?? null,
     term: d.term ?? "",
     published: d.published,
@@ -212,7 +214,7 @@ export default function QuizEditor({ id }: { id: string }) {
     if (draft) return;
     if (isNew && folders) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDraft({ slug: "", folder: folders[0]?.slug ?? "", title: "", subtitle: "", minutes: 10, code: "", featured: false, ielts: "", published: true, timer: "count", accent: "uk", speakPrep: 15, focusGuard: null, term: "", sections: [blankS()] });
+      setDraft({ slug: "", folder: folders[0]?.slug ?? "", title: "", subtitle: "", minutes: 10, code: "", featured: false, ielts: "", published: true, timer: "count", accent: "uk", speakPrep: 15, speakMode: "both", focusGuard: null, term: "", sections: [blankS()] });
     } else if (doc) setDraft(fromDoc(doc));
   }, [doc, folders, isNew, draft]);
 
@@ -263,6 +265,7 @@ export default function QuizEditor({ id }: { id: string }) {
         timer: d.timer,
         accent: d.accent,
         speakPrep: d.speakPrep,
+        speakMode: d.speakMode,
         focusGuard: d.focusGuard ?? undefined,
         term: d.term || undefined,
         published: d.published,
@@ -416,6 +419,16 @@ export default function QuizEditor({ id }: { id: string }) {
               <select className="select" id="qz-speakprep" value={d.speakPrep} onChange={(e) => update({ speakPrep: Number(e.target.value) === 30 ? 30 : 15 })}>
                 <option value={15}>15 giây trước khi bắt đầu</option>
                 <option value={30}>30 giây trước khi bắt đầu</option>
+              </select>
+            </div>
+          )}
+          {d.sections.some((s) => s.questions.some((q) => q.type === "speak")) && (
+            <div className="field">
+              <label htmlFor="qz-speakmode">Speaking: cách làm bài</label>
+              <select className="select" id="qz-speakmode" value={d.speakMode} onChange={(e) => update({ speakMode: e.target.value as Draft["speakMode"] })}>
+                <option value="both">Học sinh chọn: luyện tập hoặc thi thử</option>
+                <option value="practice">Chỉ luyện tập (tự ghi âm từng câu, tự đánh giá)</option>
+                <option value="exam">Chỉ thi thử (máy đọc câu hỏi, tính giờ)</option>
               </select>
             </div>
           )}

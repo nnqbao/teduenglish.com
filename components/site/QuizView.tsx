@@ -7,11 +7,12 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Answers } from "@/convex/model";
-import { RECORDING_KEEP_DAYS, SPEAKING_CRITERIA, WRITING_CRITERIA, normAnswer, parseDialogue, wordCount } from "@/convex/model";
+import { RECORDING_KEEP_DAYS, SPEAKING_CRITERIA, WRITING_CRITERIA, writingBand, normAnswer, parseDialogue, wordCount } from "@/convex/model";
 import { Rich, copyText, errMsg, sdel, sget, shuffle, signalReady, sset, stamp } from "@/lib/ui";
 import { GateLogin, GateNoAccess, Loading, Missing, Swoosh } from "./parts";
 import { useSite } from "./SiteShell";
 import FocusGuard, { withGuardPaused } from "./FocusGuard";
+import SpeakingPractice from "./SpeakingPractice";
 import SpeakingRunner from "./SpeakingRunner";
 
 type QuizData = NonNullable<FunctionReturnType<typeof api.site.quiz>>;
@@ -119,7 +120,7 @@ export default function QuizView({ id }: { id: string }) {
       {data.status === "ok" && !data.preview && (m.hasEssay || m.hasSpeak) && <MyWriting id={m.id} speaking={m.hasSpeak} />}
       {data.status === "ok" &&
         (m.hasSpeak ? (
-          <SpeakingRunner key={m.id} meta={m} sections={data.sections} preview={data.preview} />
+          <SpeakingTest key={m.id} meta={m} sections={data.sections} preview={data.preview} />
         ) : (
           <QuizRunner key={m.id} meta={m} sections={data.sections} preview={data.preview} guardUsed={data.guardUsed} onLockedOut={() => setLockedOut(true)} />
         ))}
@@ -167,6 +168,47 @@ function UnlockGate({ meta }: { meta: Meta }) {
           Mở bài
         </button>
       </form>
+    </section>
+  );
+}
+
+/* ---------- Speaking: practice at your own pace, or a timed mock test ---------- */
+
+function SpeakingTest({ meta, sections, preview }: { meta: Meta; sections: PubSection[]; preview: boolean }) {
+  const { token } = useSite();
+  // A practice session saved earlier goes straight back to practice.
+  const draft = useQuery(api.drafts.get, !preview && token && meta.speakMode === "both" ? { token, id: meta.id } : "skip");
+  const [picked, setPicked] = useState<"practice" | "exam" | null>(null);
+  // Latch it: submitting deletes the draft, which must not send the student back to the chooser.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (draft && !picked) setPicked("practice");
+  }, [draft, picked]);
+  const mode = meta.speakMode === "both" ? (picked ?? (draft ? "practice" : null)) : meta.speakMode;
+  const both = meta.speakMode === "both";
+
+  if (mode === "practice")
+    return <SpeakingPractice meta={meta} sections={sections} preview={preview} onExam={both ? () => setPicked("exam") : undefined} />;
+  if (mode === "exam") return <SpeakingRunner meta={meta} sections={sections} preview={preview} onPractice={both ? () => setPicked("practice") : undefined} />;
+  if (!preview && token && draft === undefined) return <Loading />;
+  return (
+    <section className="panel speak-panel">
+      <div>
+        <p className="eyebrow">IELTS Speaking</p>
+        <h2>Em muốn làm theo cách nào?</h2>
+      </div>
+      <div className="sp-modes">
+        <button className="sp-mode" type="button" onClick={() => setPicked("practice")}>
+          <span className="sp-mode-icon">🎙️</span>
+          <b>Luyện tập</b>
+          <span className="small muted">Tự ghi âm từng câu, nghe lại và ghi lại thoải mái, có bản chép lời và phiếu tự đánh giá 4 tiêu chí.</span>
+        </button>
+        <button className="sp-mode" type="button" onClick={() => setPicked("exam")}>
+          <span className="sp-mode-icon">⏱</span>
+          <b>Thi thử</b>
+          <span className="small muted">Như phòng thi: máy đọc câu hỏi, kêu “tít”, tính giờ và tự chuyển câu.</span>
+        </button>
+      </div>
     </section>
   );
 }
@@ -1090,9 +1132,16 @@ function MyWriting({ id, speaking }: { id: string; speaking?: boolean }) {
                         <b>Câu {i + 1}.</b> {r.q.split("\n")[0]}
                       </span>
                       {r.url && <audio controls preload="none" src={r.url} />}
+                      {r.transcript && <p className="tiny muted mw-transcript">“{r.transcript}”</p>}
                     </div>
                   ))}
                 </div>
+              )}
+              {a.speaking.selfReview && (
+                <p className="tiny muted">
+                  Em tự đánh giá: band <b>{writingBand(a.speaking.selfReview.criteria)?.toFixed(1)}</b>
+                  {a.speaking.selfReview.note ? ` · “${a.speaking.selfReview.note}”` : ""}
+                </p>
               )}
               {a.status === "done" && a.speaking.review ? (
                 <div className="mw-review">

@@ -32,6 +32,7 @@ function cardOf(q: Doc<"quizzes">) {
     timer: q.timer,
     accent: q.accent,
     speakPrep: q.speakPrep,
+    speakMode: q.speakMode,
     term: q.term,
     order: q.order,
     updatedAt: q.updatedAt,
@@ -120,7 +121,7 @@ export function doneMap(scores: Score[], cards: Card[], lockAtPercent: number): 
   for (const s of scores) {
     const slug = slugOf.get(s.quizId);
     if (!slug) continue;
-    map[slug] = { best: s.best, last: s.last, total: s.total, at: s.lastAt, count: s.count, review: s.review ?? null, locked: isLocked(s, lockAtPercent) };
+    map[slug] = { best: s.best, last: s.last, total: s.total, at: s.lastAt, count: s.count, review: s.review ?? null, locked: isLocked(s, lockAtPercent), band: s.band ?? null };
   }
   return map;
 }

@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { plainText } from "@/lib/rich";
+import { toMp3 } from "@/lib/mp3";
+import { startTranscriber, sttSupported, type Transcriber } from "@/lib/speech-to-text";
 import { Rich, errMsg } from "@/lib/ui";
 import { useSite } from "./SiteShell";
 
@@ -46,7 +48,7 @@ function speakable(text: string) {
  * the computer reads it aloud, beeps, and records the answer for a fixed time. Recordings go to the
  * teacher, who marks the four Speaking criteria.
  */
-export default function SpeakingRunner({ meta, sections, preview }: { meta: Meta; sections: PubSection[]; preview: boolean }) {
+export default function SpeakingRunner({ meta, sections, preview, onPractice }: { meta: Meta; sections: PubSection[]; preview: boolean; onPractice?: () => void }) {
   const { token, teacher } = useSite();
   const uploadUrl = useMutation(api.site.speakUploadUrl);
   const submit = useMutation(api.site.submit);
@@ -74,6 +76,9 @@ export default function SpeakingRunner({ meta, sections, preview }: { meta: Meta
   const skip = useRef<(() => void) | null>(null);
   const uploads = useRef<Map<string, Promise<string>>>(new Map());
   const blobs = useRef<Map<string, Blob>>(new Map());
+  // Transcripts made by the browser while each answer is recorded (computers only; see lib/speech-to-text).
+  const transcripts = useRef<Record<string, string>>({});
+  const pendingTexts = useRef<Promise<unknown>[]>([]);
   const startedAt = useRef(0);
 
   /* ---------- devices ---------- */
@@ -268,8 +273,9 @@ export default function SpeakingRunner({ meta, sections, preview }: { meta: Meta
 
   /* ---------- the test ---------- */
 
-  function upload(key: string, blob: Blob): Promise<string> {
+  function upload(key: string, original: Blob): Promise<string> {
     const p = (async () => {
+      const blob = await toMp3(original);
       let last: unknown;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
@@ -317,7 +323,9 @@ export default function SpeakingRunner({ meta, sections, preview }: { meta: Meta
         beep();
         await new Promise((r) => setTimeout(r, 450));
         setStep({ i, stage: "recording" });
+        const tr: Transcriber | null = sttSupported() ? startTranscriber(meta.accent === "us" ? "en-US" : "en-GB", () => {}, () => {}) : null;
         const blob = await record(countdown(it.answerSec, id, true).catch(() => {}));
+        if (tr) pendingTexts.current.push(tr.stop().then((t) => t && (transcripts.current[it.key] = t)));
         if (runId.current !== id) return;
         blobs.current.set(it.key, blob);
         setClips((c) => c.map((x, j) => (j === i ? URL.createObjectURL(blob) : x)));
@@ -347,7 +355,15 @@ export default function SpeakingRunner({ meta, sections, preview }: { meta: Meta
     try {
       const answers: Record<string, string> = {};
       for (const [key, p] of uploads.current) answers[key] = await p;
-      await submit({ token: token ?? undefined, id: meta.id, answers, durationSec: (Date.now() - startedAt.current) / 1000 });
+      await Promise.all(pendingTexts.current);
+      await submit({
+        token: token ?? undefined,
+        id: meta.id,
+        answers,
+        transcripts: transcripts.current,
+        mode: "exam",
+        durationSec: (Date.now() - startedAt.current) / 1000,
+      });
       setPhase("done");
     } catch (e) {
       setSendErr(errMsg(e, "Chưa gửi được bài nói. Kiểm tra mạng rồi bấm Gửi lại."));
@@ -415,6 +431,11 @@ export default function SpeakingRunner({ meta, sections, preview }: { meta: Meta
         <button className="btn btn-primary btn-block" type="button" onClick={start} disabled={mic !== "on"}>
           Bắt đầu thi · chuẩn bị {meta.speakPrep} giây
         </button>
+        {onPractice && (
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onPractice}>
+            ← Về chế độ luyện tập
+          </button>
+        )}
       </section>
     );
 
@@ -526,6 +547,8 @@ export default function SpeakingRunner({ meta, sections, preview }: { meta: Meta
           onClick={() => {
             uploads.current.clear();
             blobs.current.clear();
+            transcripts.current = {};
+            pendingTexts.current = [];
             setSent(0);
             setTrial("idle");
             setMic("off");

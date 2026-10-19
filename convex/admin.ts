@@ -23,7 +23,7 @@ import {
   studentByCode,
   verifyPassword,
 } from "./lib";
-import { accentValidator, essayReviewValidator, ieltsValidator, resourceKindValidator, sectionValidator, termValidator, timerValidator } from "./schema";
+import { accentValidator, essayReviewValidator, ieltsValidator, resourceKindValidator, sectionValidator, termValidator, timerValidator, speakModeValidator } from "./schema";
 import { cardByQuiz, refreshScore, syncCard } from "./summary";
 import { MAX_AUDIO_BYTES, MAX_PDF_BYTES, SPEAKING_REVIEW_KEY, formatBytes, hasSpeak, isCorrect, normCode, parentCodeFor, slugify, validateSections, wordCount, writingBand, viCompare } from "./model";
 
@@ -655,6 +655,7 @@ const quizFields = {
   timer: timerValidator,
   accent: accentValidator,
   speakPrep: v.optional(v.number()),
+  speakMode: speakModeValidator,
   term: termValidator,
   focusGuard: v.optional(v.boolean()),
   sections: v.array(sectionValidator),
@@ -715,7 +716,7 @@ export const saveQuiz = mutation({
       published: args.published,
       ...(args.timer ? { timer: args.timer } : {}),
       ...(args.accent ? { accent: args.accent } : {}),
-      ...(hasSpeak(sections) ? { speakPrep: args.speakPrep === 30 ? 30 : 15 } : {}),
+      ...(hasSpeak(sections) ? { speakPrep: args.speakPrep === 30 ? 30 : 15, ...(args.speakMode ? { speakMode: args.speakMode } : {}) } : {}),
       ...(args.focusGuard != null ? { focusGuard: args.focusGuard } : {}),
       ...(args.term ? { term: args.term } : {}),
       sections,
@@ -862,10 +863,24 @@ export const attemptDetail = query({
           n++;
           if (q.type !== "speak") continue;
           const id = recs.get(`${si}-${qi}`);
-          items.push({ num: n, key: `${si}-${qi}`, section: sec.title, q: q.q, answerSec: q.answerSec, url: id ? await ctx.storage.getUrl(id) : null });
+          items.push({
+            num: n,
+            key: `${si}-${qi}`,
+            section: sec.title,
+            q: q.q,
+            answerSec: q.answerSec,
+            url: id ? await ctx.storage.getUrl(id) : null,
+            transcript: a.transcripts?.[`${si}-${qi}`] ?? "",
+          });
         }
       const r = a.essayReviews?.[SPEAKING_REVIEW_KEY];
-      speaking = { purged: !!a.recordingsPurged, items, review: r ? { comment: r.comment, band: r.band ?? null, criteria: r.criteria ?? null } : null };
+      speaking = {
+        purged: !!a.recordingsPurged,
+        items,
+        review: r ? { comment: r.comment, band: r.band ?? null, criteria: r.criteria ?? null } : null,
+        selfReview: a.selfReview ?? null,
+        mode: a.speakMode ?? null,
+      };
     }
     return { ...row, ...meta, questions, essays, speaking };
   },

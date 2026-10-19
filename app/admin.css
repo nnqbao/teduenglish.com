@@ -187,3 +187,5 @@ button.check { background: var(--surface); }
 .rich-input:has(.rich-area.single) .rich-tools button span.clear { display: inline; }
 .opt-edit .rich-input { flex: 1 1 auto; }
 .speak-download { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sp-transcript { margin: 2px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); font-size: 0.88rem; line-height: 1.5; }
+.sp-self-view { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--line-strong); }

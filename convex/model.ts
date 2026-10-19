@@ -32,6 +32,9 @@ export const MAX_AUDIO_BYTES = 40 * 1024 * 1024;
 export const MAX_RECORDING_BYTES = 8 * 1024 * 1024;
 /** Recordings are deleted this long after submission; marks and comments are kept. */
 export const RECORDING_KEEP_DAYS = 5;
+/** Speaking transcript per answer, and the student's note on their self-review. */
+export const MAX_TRANSCRIPT_CHARS = 4000;
+export const MAX_SELF_NOTE_CHARS = 1000;
 /** essayReviews key holding the teacher's single review of a Speaking test. */
 export const SPEAKING_REVIEW_KEY = "speaking";
 

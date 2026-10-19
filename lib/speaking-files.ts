@@ -33,7 +33,7 @@ function partTag(section: string): string {
   return m ? `Part${m[1]}` : fileSlug(section, 16) || "Phan";
 }
 
-export type SpeakingItem = { num: number; section: string; q: string; answerSec: number };
+export type SpeakingItem = { num: number; section: string; q: string; answerSec: number; transcript?: string };
 export type SpeakingAttempt = { studentName: string; className: string; quizTitle: string; submittedAt: number };
 
 const day = (t: number) => {
@@ -64,6 +64,7 @@ export function questionList(a: SpeakingAttempt, rows: { it: SpeakingItem; file:
       `Câu ${it.num} · ${it.section} · ${it.answerSec} giây`,
       `  ${it.q.replace(/\n/g, "\n  ")}`,
       `  → ${file ?? "(không có ghi âm)"}`,
+      ...(it.transcript ? [`  Bản chép lời: ${it.transcript}`] : []),
       "",
     ]),
   ];

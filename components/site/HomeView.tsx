@@ -145,6 +145,19 @@ function Dashboard({ home }: { home: HomeData }) {
         </section>
       )}
 
+      {myQuizzes.some((q) => q.hasSpeak) && (
+        <Link className="resume-card speak-entry" href="/speaking">
+          <span className="resume-text">
+            <span className="tiny muted">IELTS Speaking</span>
+            <b>🎤 Luyện nói, ghi âm, tự đánh giá</b>
+            <span className="tiny">
+              Đã nộp {myQuizzes.filter((q) => q.hasSpeak && done[q.id]).length}/{myQuizzes.filter((q) => q.hasSpeak).length} chủ đề
+            </span>
+          </span>
+          <span className="btn btn-primary go">Vào luyện nói →</span>
+        </Link>
+      )}
+
       {featured.length > 0 && (
         <div className="featured">
           {featured.map((q) => {

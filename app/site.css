@@ -816,3 +816,57 @@ td code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospac
 .resume-progress .progress { flex: 0 0 120px; }
 .resume-card .go { flex-shrink: 0; }
 .resume-note { margin: 0; }
+
+/* ---------- IELTS Speaking practice (record at your own pace) ---------- */
+.sp-wrap { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }
+.sp-grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@container site (min-width: 820px) { .sp-grid { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); } }
+.sp-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.sp-tabs button { border: 0; border-radius: 10px; padding: 8px 16px; font-weight: 700; font-size: 0.88rem; cursor: pointer; background: var(--surface-2); color: var(--muted); }
+.sp-tabs button.on { background: var(--accent); color: var(--on-accent); }
+.sp-card { background: var(--surface-2); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+.sp-q { font-size: 1.12rem; font-weight: 700; color: var(--ink); white-space: pre-line; line-height: 1.45; }
+.sp-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sp-nav-btns { display: flex; gap: 6px; }
+.sp-answer { align-items: center; }
+.sp-answer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; width: 100%; flex-wrap: wrap; }
+.sp-record {
+  width: 84px; height: 84px; border-radius: 50%; border: 0; cursor: pointer;
+  background: #d93025; box-shadow: 0 0 0 10px rgba(217, 48, 37, 0.12);
+  display: grid; place-items: center; transition: transform .12s ease;
+}
+.sp-record span { width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: border-radius .15s ease; }
+.sp-record.on { animation: sp-pulse 1.2s ease-in-out infinite; }
+.sp-record.on span { border-radius: 3px; width: 22px; height: 22px; }
+.sp-record:disabled { opacity: .45; cursor: not-allowed; }
+.sp-record:active { transform: scale(.96); }
+@keyframes sp-pulse { 50% { box-shadow: 0 0 0 18px rgba(217, 48, 37, 0.06); } }
+@media (prefers-reduced-motion: reduce) { .sp-record.on { animation: none; } }
+.sp-clock { font-family: var(--font-display); font-size: 2.6rem; font-weight: 800; line-height: 1; color: var(--brand-ink); font-variant-numeric: tabular-nums; margin: 4px 0 0; }
+.sp-live { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-ink); font-size: 0.9rem; }
+.sp-selfband { display: flex; flex-direction: column; align-items: center; padding: 8px 14px; border-radius: 12px; background: var(--surface-2); min-width: 120px; }
+.sp-selfband b { font-family: var(--font-display); font-size: 1.8rem; color: var(--brand-ink); }
+.sp-criteria { display: grid; gap: 10px; grid-template-columns: 1fr; }
+@container site (min-width: 720px) { .sp-criteria { grid-template-columns: 1fr 1fr; } }
+.sp-criterion { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; }
+.sp-submit { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sp-modes { display: grid; gap: 12px; grid-template-columns: 1fr; }
+@container site (min-width: 640px) { .sp-modes { grid-template-columns: 1fr 1fr; } }
+.sp-mode {
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start; text-align: left;
+  padding: 16px 18px; border-radius: 16px; border: 1.5px solid var(--line-strong); background: var(--surface); cursor: pointer; color: inherit;
+}
+.sp-mode:hover { border-color: var(--accent); background: var(--surface-2); }
+.sp-mode b { font-size: 1.1rem; color: var(--brand-ink); }
+.sp-mode-icon { font-size: 1.8rem; }
+.topic-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.topic-card {
+  display: flex; flex-direction: column; gap: 4px; padding: 14px; border-radius: 14px;
+  border: 1.5px solid var(--line); text-decoration: none; color: inherit; background: var(--surface);
+}
+.topic-card:hover { border-color: var(--accent); background: var(--surface-2); }
+.topic-card b { color: var(--brand-ink); }
+.topic-status { margin-top: 4px; font-size: 0.78rem; font-weight: 700; color: var(--muted); }
+.topic-status.done { color: var(--good); }
+.topic-status.wait, .topic-status.draft { color: var(--accent-ink); }
+.speak-entry { margin-top: 18px; }

@@ -41,6 +41,9 @@ export const ieltsValidator = v.optional(
 export const termValidator = v.optional(v.union(v.literal("hk1"), v.literal("hk2")));
 export const timerValidator = v.optional(v.union(v.literal("off"), v.literal("count"), v.literal("auto")));
 export const accentValidator = v.optional(v.union(v.literal("uk"), v.literal("us")));
+/** Speaking: "exam" runs itself with timers; "practice" lets the student record each question at their own pace; "both" lets them choose. */
+export const speakModeValidator = v.optional(v.union(v.literal("exam"), v.literal("practice"), v.literal("both")));
+export const selfReviewValidator = v.object({ criteria: v.array(v.number()), note: v.string() });
 
 export const resourceKindValidator = v.union(
   v.literal("exercise"),
@@ -106,6 +109,7 @@ export default defineSchema({
     timer: timerValidator,
     accent: accentValidator,
     speakPrep: v.optional(v.number()),
+    speakMode: speakModeValidator,
     term: termValidator,
     order: v.number(),
     updatedAt: v.number(),
@@ -145,6 +149,7 @@ export default defineSchema({
     total: v.number(),
     elapsedSec: v.number(), // time already used, so a timed test resumes where it stopped
     updatedAt: v.number(),
+    files: v.optional(v.array(v.id("_storage"))), // Speaking recordings kept for this draft
   })
     .index("by_student_quiz", ["studentId", "quizId"])
     .index("by_updatedAt", ["updatedAt"]),
@@ -210,6 +215,7 @@ export default defineSchema({
     timer: timerValidator,
     accent: accentValidator, // listening voice, default "uk"
     speakPrep: v.optional(v.number()), // Speaking: seconds to get ready before the first question (15 or 30)
+    speakMode: speakModeValidator,
     // Leaving the test (other tab/app) warns once, then locks the account. Unset → on for IELTS Reading/Writing and essays.
     focusGuard: v.optional(v.boolean()),
     term: termValidator, // semester group inside the folder
@@ -244,6 +250,11 @@ export default defineSchema({
     recordingsPurged: v.optional(v.boolean()),
     // Submitted automatically because the student left a guarded test and was locked out.
     leftQuiz: v.optional(v.boolean()),
+    // Speaking: what the student said (typed or recognised by the browser), by answer key.
+    transcripts: v.optional(v.record(v.string(), v.string())),
+    // Speaking practice: the student's own marks on the four criteria, and a note for next time.
+    selfReview: v.optional(selfReviewValidator),
+    speakMode: v.optional(v.union(v.literal("exam"), v.literal("practice"))),
     essayReviews: v.optional(v.record(v.string(), essayReviewValidator)),
     reviewedAt: v.optional(v.number()),
     reviewedBy: v.optional(v.string()),

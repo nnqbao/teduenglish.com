@@ -521,7 +521,17 @@ function SpeakingReview({ attempt, onDone }: { attempt: Detail; onDone: () => vo
       <section className="essay-review">
         <p className="eyebrow">
           Bài nói · {answered}/{sp.items.length} câu có ghi âm
+          {sp.mode ? ` · ${sp.mode === "practice" ? "luyện tập" : "thi thử"}` : ""}
         </p>
+        {sp.selfReview && (
+          <div className="sp-self-view">
+            <b>Em tự đánh giá: band {writingBand(sp.selfReview.criteria)?.toFixed(1) ?? "—"}</b>
+            <span className="tiny">
+              {SPEAKING_CRITERIA.map((c, i) => `${c} ${sp.selfReview!.criteria[i].toFixed(1)}`).join(" · ")}
+            </span>
+            {sp.selfReview.note && <span className="small">“{sp.selfReview.note}”</span>}
+          </div>
+        )}
         {sp.purged ? (
           <p className="small muted">Ghi âm đã tự xoá sau {RECORDING_KEEP_DAYS} ngày; điểm và nhận xét vẫn còn.</p>
         ) : (
@@ -553,6 +563,11 @@ function SpeakingReview({ attempt, onDone }: { attempt: Detail; onDone: () => vo
                 )}
               </span>
               {it.url ? <audio controls preload="none" src={it.url} /> : <span className="tiny muted">{sp.purged ? "(đã xoá)" : "(không có ghi âm)"}</span>}
+              {it.transcript && (
+                <p className="sp-transcript">
+                  <span className="tiny muted">Bản chép lời:</span> {it.transcript}
+                </p>
+              )}
             </div>
           ))}
         </div>

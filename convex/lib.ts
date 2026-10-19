@@ -224,7 +224,13 @@ export async function saveAttempt(
   quiz: Doc<"quizzes">,
   studentId: Id<"students">,
   raw: Record<string, string | number>,
-  opts: { durationSec?: number; leftQuiz?: boolean } = {},
+  opts: {
+    durationSec?: number;
+    leftQuiz?: boolean;
+    transcripts?: Record<string, string>;
+    selfReview?: { criteria: number[]; note: string };
+    speakMode?: "exam" | "practice";
+  } = {},
 ) {
   const { answers, needsReview } = await cleanAnswers(ctx, quiz, raw, false);
   const result = grade(quiz.sections, answers);
@@ -240,6 +246,9 @@ export async function saveAttempt(
     ...(opts.durationSec != null ? { durationSec: Math.max(0, Math.min(86_400, Math.round(opts.durationSec))) } : {}),
     ...(needsReview ? { reviewStatus: "pending" as const } : {}),
     ...(opts.leftQuiz ? { leftQuiz: true } : {}),
+    ...(opts.transcripts && Object.keys(opts.transcripts).length ? { transcripts: opts.transcripts } : {}),
+    ...(opts.selfReview ? { selfReview: opts.selfReview } : {}),
+    ...(opts.speakMode ? { speakMode: opts.speakMode } : {}),
   });
   await deleteDrafts(ctx, studentId, quiz._id);
   await ctx.db.patch(studentId, { lastSeenAt: now });
@@ -247,7 +256,7 @@ export async function saveAttempt(
 }
 
 /** What a list needs about a quiz: a quiz card (summary.ts) or a full quiz via quizMeta. */
-export type MetaSource = Pick<Doc<"quizzes">, "slug" | "folder" | "title" | "subtitle" | "minutes" | "code" | "featured" | "ielts" | "timer" | "accent" | "speakPrep" | "term"> & {
+export type MetaSource = Pick<Doc<"quizzes">, "slug" | "folder" | "title" | "subtitle" | "minutes" | "code" | "featured" | "ielts" | "timer" | "accent" | "speakPrep" | "speakMode" | "term"> & {
   questionCount: number;
   hasEssay: boolean;
   hasSpeak: boolean;
@@ -269,6 +278,7 @@ export function metaOf(q: MetaSource) {
     hasSpeak: q.hasSpeak,
     guard: q.guard,
     speakPrep: q.speakPrep ?? 15,
+    speakMode: q.speakMode ?? "both",
     timer: q.timer ?? (q.minutes > 0 ? "count" : "off"),
     accent: q.accent ?? "uk",
     term: q.term ?? null,
@@ -355,6 +365,8 @@ export type DoneRecord = {
   review: "pending" | "done" | null;
   /** Best score reached the lock threshold: the quiz is closed for this student. */
   locked: boolean;
+  /** Best IELTS band (teacher-marked for Writing/Speaking). */
+  band: number | null;
 };
 
 /** Resource as shown to a student who may open its folder. */

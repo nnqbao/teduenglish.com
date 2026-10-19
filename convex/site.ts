@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type QueryCtx } from "./_generated/server";
+import { selfReviewValidator } from "./schema";
 import {
   STUDENT_SESSION_MS,
   allFolders,
@@ -25,7 +26,7 @@ import {
 import { awayCount } from "./guard";
 import { allCards, doneMap, isLocked, refreshScore, scoreOf, scoresOf, type Card, type Score } from "./summary";
 import { classRanking, progressOf } from "./stats";
-import { SPEAKING_REVIEW_KEY, bandFor, grade, hasEssay, hasSpeak, isAnswered, isCorrect, normCode, wordCount, type Answers } from "./model";
+import { MAX_SELF_NOTE_CHARS, MAX_TRANSCRIPT_CHARS, SPEAKING_REVIEW_KEY, bandFor, grade, hasEssay, hasSpeak, isAnswered, isCorrect, normCode, wordCount, type Answers } from "./model";
 
 const token = v.optional(v.string());
 
@@ -196,10 +197,11 @@ export const writing = query({
             recordings: await Promise.all(
               recordingIds(quiz, a).map(async ([key, id]) => {
                 const [si, qi] = key.split("-").map(Number);
-                return { key, q: quiz.sections[si].questions[qi].q, url: await ctx.storage.getUrl(id) };
+                return { key, q: quiz.sections[si].questions[qi].q, url: await ctx.storage.getUrl(id), transcript: a.transcripts?.[key] ?? "" };
               }),
             ),
             review: a.essayReviews?.[SPEAKING_REVIEW_KEY] ?? null,
+            selfReview: a.selfReview ?? null,
           }
         : null,
       essays: quiz.sections.flatMap((sec, si) =>
@@ -216,6 +218,24 @@ export const writing = query({
 });
 
 /* ---------- writes ---------- */
+
+/** Transcripts for real Speaking questions only, a well-formed self-review, and the mode used. */
+function speakingExtras(
+  quiz: Doc<"quizzes">,
+  args: { transcripts?: Record<string, string>; selfReview?: { criteria: number[]; note: string }; mode?: "exam" | "practice" },
+) {
+  if (!hasSpeak(quiz.sections)) return {};
+  const transcripts: Record<string, string> = {};
+  for (const [key, text] of Object.entries(args.transcripts ?? {})) {
+    const [si, qi] = key.split("-").map(Number);
+    const clean = text.trim().slice(0, MAX_TRANSCRIPT_CHARS);
+    if (quiz.sections[si]?.questions[qi]?.type === "speak" && clean) transcripts[key] = clean;
+  }
+  const c = args.selfReview?.criteria ?? [];
+  const selfReview =
+    c.length === 4 && c.every((x) => x >= 0 && x <= 9 && (x * 2) % 1 === 0) ? { criteria: c, note: (args.selfReview?.note ?? "").trim().slice(0, MAX_SELF_NOTE_CHARS) } : undefined;
+  return { transcripts, ...(selfReview ? { selfReview } : {}), ...(args.mode ? { speakMode: args.mode } : {}) };
+}
 
 /** Upload link for one Speaking answer; only for a student who may take this test right now. */
 export const speakUploadUrl = mutation({
@@ -309,6 +329,10 @@ export const submit = mutation({
     id: v.string(),
     answers: v.record(v.string(), v.union(v.string(), v.number())),
     durationSec: v.optional(v.number()),
+    // Speaking only.
+    transcripts: v.optional(v.record(v.string(), v.string())),
+    selfReview: v.optional(selfReviewValidator),
+    mode: v.optional(v.union(v.literal("exam"), v.literal("practice"))),
   },
   handler: async (ctx, args) => {
     const quiz = await quizBySlug(ctx, args.id);
@@ -340,7 +364,10 @@ export const submit = mutation({
       band = bandFor(quiz.ielts, result.correct, result.total);
       now = Date.now();
     } else {
-      ({ answers, needsReview: wroteEssay, result, band, now } = await saveAttempt(ctx, quiz, student!._id, args.answers, { durationSec: args.durationSec }));
+      ({ answers, needsReview: wroteEssay, result, band, now } = await saveAttempt(ctx, quiz, student!._id, args.answers, {
+        durationSec: args.durationSec,
+        ...speakingExtras(quiz, args),
+      }));
       await refreshScore(ctx, student!._id, quiz._id);
     }
 
