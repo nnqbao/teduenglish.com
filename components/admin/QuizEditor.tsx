@@ -46,6 +46,10 @@ type Draft = {
   accent: "uk" | "us";
   speakPrep: 15 | 30;
   speakMode: "both" | "practice" | "exam";
+  /** Scheduled exam: open/close as datetime-local strings in the teacher's time zone ("" = by hand). */
+  examOn: boolean;
+  opensAt: string;
+  closesAt: string;
   /** null = automatic (on for IELTS Reading/Writing and tests with essays). */
   focusGuard: boolean | null;
   term: "" | "hk1" | "hk2";
@@ -180,6 +184,9 @@ function fromDoc(d: Doc<"quizzes"> & { fileUrls: Record<string, string> }): Draf
     accent: d.accent ?? "uk",
     speakPrep: d.speakPrep === 30 ? 30 : 15,
     speakMode: d.speakMode ?? "both",
+    examOn: !!d.exam,
+    opensAt: toLocalInput(d.exam?.opensAt),
+    closesAt: toLocalInput(d.exam?.closesAt),
     focusGuard: d.focusGuard ?? null,
     term: d.term ?? "",
     published: d.published,
@@ -214,7 +221,7 @@ export default function QuizEditor({ id }: { id: string }) {
     if (draft) return;
     if (isNew && folders) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDraft({ slug: "", folder: folders[0]?.slug ?? "", title: "", subtitle: "", minutes: 10, code: "", featured: false, ielts: "", published: true, timer: "count", accent: "uk", speakPrep: 15, speakMode: "both", focusGuard: null, term: "", sections: [blankS()] });
+      setDraft({ slug: "", folder: folders[0]?.slug ?? "", title: "", subtitle: "", minutes: 10, code: "", featured: false, ielts: "", published: true, timer: "count", accent: "uk", speakPrep: 15, speakMode: "both", examOn: false, opensAt: "", closesAt: "", focusGuard: null, term: "", sections: [blankS()] });
     } else if (doc) setDraft(fromDoc(doc));
   }, [doc, folders, isNew, draft]);
 
@@ -266,6 +273,9 @@ export default function QuizEditor({ id }: { id: string }) {
         accent: d.accent,
         speakPrep: d.speakPrep,
         speakMode: d.speakMode,
+        exam: d.examOn
+          ? { ...(fromLocalInput(d.opensAt) ? { opensAt: fromLocalInput(d.opensAt)! } : {}), ...(fromLocalInput(d.closesAt) ? { closesAt: fromLocalInput(d.closesAt)! } : {}) }
+          : undefined,
         focusGuard: d.focusGuard ?? undefined,
         term: d.term || undefined,
         published: d.published,
@@ -466,6 +476,7 @@ export default function QuizEditor({ id }: { id: string }) {
             </label>
           </div>
         </div>
+        <ExamSettings d={d} update={update} live={isNew ? null : (doc?.exam ?? null)} quizId={isNew ? null : (id as Id<"quizzes">)} dirty={dirty} />
       </section>
 
       {d.sections.map((s, si) => (
@@ -915,5 +926,110 @@ function AudioField({ audio, onChange }: { audio: EImage | null; onChange: (a: E
       <span className="btn btn-ghost btn-sm">{busy ? "Đang tải file nghe…" : "🎧 Thêm file MP3"}</span>
       <span className="tiny muted">tối đa {formatBytes(MAX_AUDIO_BYTES)}</span>
     </label>
+  );
+}
+
+/** datetime-local value ("2026-11-15T08:00") ↔ timestamp, in the teacher's own time zone. */
+function toLocalInput(ms: number | undefined) {
+  if (!ms) return "";
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function fromLocalInput(v: string): number | null {
+  if (!v) return null;
+  const t = new Date(v).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
+const PHASE_LABEL = { upcoming: "🔒 Chưa mở (học sinh thấy mờ)", open: "🟢 Đang mở cho học sinh làm", ended: "⏹ Đã đóng" } as const;
+
+/** Scheduled exam: on/off, open and close times, and the teacher's open / close / release buttons. */
+function ExamSettings({
+  d,
+  update,
+  live,
+  quizId,
+  dirty,
+}: {
+  d: Draft;
+  update: (patch: Partial<Draft>) => void;
+  live: Doc<"quizzes">["exam"] | null;
+  quizId: Id<"quizzes"> | null;
+  dirty: boolean;
+}) {
+  const { token, toast } = useAdmin();
+  const setPhase = useMutation(api.exam.setPhase);
+  const release = useMutation(api.exam.release);
+  const run = async (p: Promise<unknown>, msg: string) => {
+    try {
+      await p;
+      toast(msg);
+    } catch (e) {
+      toast(errMsg(e));
+    }
+  };
+  return (
+    <div className={`exam-box${d.examOn ? " on" : ""}`}>
+      <label className="switch">
+        <input type="checkbox" checked={d.examOn} onChange={(e) => update({ examOn: e.target.checked })} />
+        <b>🎯 Bài thi tập trung</b>
+        <span className="hint">— học sinh thấy bài mờ đến giờ mở đề, mỗi em làm 1 lần, kết quả chỉ hiện khi thầy cô công bố</span>
+      </label>
+      {d.examOn && (
+        <>
+          <div className="row-2">
+            <div className="field">
+              <label htmlFor="qz-opens">
+                Mở đề lúc <span className="hint">(để trống nếu muốn tự bấm “Mở ngay”)</span>
+              </label>
+              <input className="input" id="qz-opens" type="datetime-local" value={d.opensAt} onChange={(e) => update({ opensAt: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="qz-closes">
+                Đóng đề lúc <span className="hint">(em đang làm dở được thêm 15 phút để nộp)</span>
+              </label>
+              <input className="input" id="qz-closes" type="datetime-local" value={d.closesAt} onChange={(e) => update({ closesAt: e.target.value })} />
+            </div>
+          </div>
+          {!d.published && <p className="alert alert-warn">Bài đang ẩn: bật “Hiện cho học sinh” để các em thấy bài thi (mờ) trước giờ thi.</p>}
+          {live && quizId ? (
+            <div className="exam-controls">
+              <span>
+                Trạng thái: <b>{PHASE_LABEL[live.phase]}</b>
+                {live.releasedAt ? " · ✅ Đã công bố kết quả" : ""}
+              </span>
+              <span className="row-actions">
+                {live.phase !== "open" && (
+                  <button className="btn btn-primary btn-sm" type="button" onClick={() => run(setPhase({ token, id: quizId, phase: "open" }), "Đã mở đề cho học sinh.")}>
+                    Mở ngay
+                  </button>
+                )}
+                {live.phase === "open" && (
+                  <button className="btn btn-ghost btn-sm" type="button" onClick={() => confirm("Đóng đề? Em nào đang làm dở được thêm 15 phút để nộp.") && run(setPhase({ token, id: quizId, phase: "ended" }), "Đã đóng đề.")}>
+                    Đóng đề
+                  </button>
+                )}
+                {live.phase !== "upcoming" && (
+                  <button className="btn btn-ghost btn-sm" type="button" onClick={() => run(setPhase({ token, id: quizId, phase: "upcoming" }), "Đã đưa bài về trạng thái chưa mở.")}>
+                    Đưa về “chưa mở”
+                  </button>
+                )}
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  onClick={() => run(release({ token, id: quizId, released: !live.releasedAt }), live.releasedAt ? "Đã ẩn kết quả." : "Đã công bố kết quả cho học sinh.")}
+                >
+                  {live.releasedAt ? "Ẩn kết quả" : "📣 Công bố kết quả"}
+                </button>
+              </span>
+              {dirty && <span className="tiny muted">Nhớ bấm “Lưu bài” để lưu giờ mở/đóng mới.</span>}
+            </div>
+          ) : (
+            <p className="tiny muted">Lưu bài để có các nút Mở ngay / Đóng đề / Công bố kết quả.</p>
+          )}
+        </>
+      )}
+    </div>
   );
 }

@@ -22,11 +22,13 @@ import {
   recordingIds,
   cleanAnswers,
   saveAttempt,
+  attemptBand,
+  skillOf,
 } from "./lib";
 import { awayCount } from "./guard";
 import { allCards, doneMap, isLocked, refreshScore, scoreOf, scoresOf, type Card, type Score } from "./summary";
 import { classRanking, progressOf } from "./stats";
-import { MAX_SELF_NOTE_CHARS, MAX_TRANSCRIPT_CHARS, SPEAKING_REVIEW_KEY, bandFor, grade, hasEssay, hasSpeak, isAnswered, isCorrect, normCode, wordCount, type Answers } from "./model";
+import { examAccepts, MAX_SELF_NOTE_CHARS, MAX_TRANSCRIPT_CHARS, SPEAKING_REVIEW_KEY, bandFor, grade, hasEssay, hasSpeak, isAnswered, isCorrect, normCode, wordCount, type Answers } from "./model";
 
 const token = v.optional(v.string());
 
@@ -161,7 +163,23 @@ export const quiz = query({
     if (!student) return { meta, status: "login" as const };
     if (!canOpen(student, quiz.folder)) return { meta, status: "noaccess" as const };
     const score = await scoreOf(ctx, student._id, quiz._id);
-    if (score && isLocked(score, lockAtPercent))
+    if (quiz.exam) {
+      // One attempt; the questions are only sent while the exam is open.
+      if (score) {
+        const result = await examResult(ctx, quiz, student._id);
+        // Questions only come back with released results, to go through the answers.
+        return { meta, status: "examDone" as const, result, sections: result ? await publicSections(ctx, quiz) : null };
+      }
+      if (quiz.exam.phase === "upcoming") return { meta, status: "examWait" as const };
+      if (quiz.exam.phase === "ended") {
+        // After closing, only a student who had started (saved work) may come back to hand it in.
+        const started = await ctx.db
+          .query("drafts")
+          .withIndex("by_student_quiz", (q) => q.eq("studentId", student._id).eq("quizId", quiz._id))
+          .first();
+        if (!started || !examAccepts(quiz.exam, Date.now())) return { meta, status: "examClosed" as const };
+      }
+    } else if (score && isLocked(score, lockAtPercent))
       return { meta, status: "mastered" as const, best: { correct: Math.round((score.openPct / 100) * score.total), total: score.total, at: score.lastAt } };
     if (quiz.code) {
       const unlocked = await ctx.db
@@ -186,10 +204,12 @@ export const writing = query({
     const attempts = (await ctx.db.query("attempts").withIndex("by_student", (q) => q.eq("studentId", student._id)).order("desc").collect())
       .filter((a) => a.quizId === quiz._id && a.reviewStatus)
       .slice(0, 10);
+    // A scheduled exam shows the teacher's marks only once results are released.
+    const held = !!quiz.exam && !quiz.exam.releasedAt;
     return Promise.all(attempts.map(async (a) => ({
       id: a._id,
       submittedAt: a.submittedAt,
-      status: a.reviewStatus!,
+      status: held ? ("pending" as const) : a.reviewStatus!,
       reviewedBy: a.reviewedBy ?? null,
       speaking: hasSpeak(quiz.sections)
         ? {
@@ -200,7 +220,7 @@ export const writing = query({
                 return { key, q: quiz.sections[si].questions[qi].q, url: await ctx.storage.getUrl(id), transcript: a.transcripts?.[key] ?? "" };
               }),
             ),
-            review: a.essayReviews?.[SPEAKING_REVIEW_KEY] ?? null,
+            review: held ? null : (a.essayReviews?.[SPEAKING_REVIEW_KEY] ?? null),
             selfReview: a.selfReview ?? null,
           }
         : null,
@@ -209,7 +229,7 @@ export const writing = query({
           if (q.type !== "essay") return [];
           const key = `${si}-${qi}`;
           const text = String(a.answers[key] ?? "");
-          const review = a.essayReviews?.[key];
+          const review = held ? undefined : a.essayReviews?.[key];
           return [{ key, prompt: q.q, text, words: wordCount(text), minWords: q.minWords ?? 0, comment: review?.comment ?? "", band: review?.band ?? null, criteria: review?.criteria ?? null }];
         }),
       ),
@@ -218,6 +238,47 @@ export const writing = query({
 });
 
 /* ---------- writes ---------- */
+
+/**
+ * Answers and explanations only for questions the student actually answered; a blank question keeps
+ * its answer hidden so it can't be copied on the next try or passed on. The teacher's preview shows all.
+ */
+function reviewOf(quiz: Doc<"quizzes">, answers: Answers, preview: boolean) {
+  const review: Record<string, { ok: boolean; answered: boolean; answer: number | string | null; explain: string; essay: boolean }> = {};
+  quiz.sections.forEach((sec, si) =>
+    sec.questions.forEach((q, qi) => {
+      const key = `${si}-${qi}`;
+      const answered = isAnswered(q, answers[key]);
+      const reveal = (answered || preview) && q.type !== "essay" && q.type !== "speak";
+      review[key] = {
+        ok: isCorrect(q, answers[key]),
+        answered,
+        answer: !reveal ? null : q.type === "mcq" ? q.answer : q.type === "fill" ? q.answer[0] ?? "" : null,
+        explain: reveal ? q.explain ?? "" : "",
+        essay: q.type === "essay" || q.type === "speak",
+      };
+    }),
+  );
+  return review;
+}
+
+/** A scheduled exam the student has handed in: nothing until released, then their score, band and answers. */
+async function examResult(ctx: QueryCtx, quiz: Doc<"quizzes">, studentId: Id<"students">) {
+  if (!quiz.exam?.releasedAt) return null;
+  const a = (await ctx.db.query("attempts").withIndex("by_student", (q) => q.eq("studentId", studentId)).collect())
+    .filter((x) => x.quizId === quiz._id)
+    .sort((x, y) => y.submittedAt - x.submittedAt)[0];
+  if (!a) return null;
+  const skill = skillOf(quiz);
+  return {
+    correct: a.correct,
+    total: a.total,
+    band: skill ? attemptBand(quiz, a, skill) : null,
+    submittedAt: a.submittedAt,
+    answers: a.answers,
+    review: reviewOf(quiz, a.answers, false),
+  };
+}
 
 /** Transcripts for real Speaking questions only, a well-formed self-review, and the mode used. */
 function speakingExtras(
@@ -246,7 +307,9 @@ export const speakUploadUrl = mutation({
     if (!quiz || !student || !quiz.published || !canOpen(student, quiz.folder) || !hasSpeak(quiz.sections))
       fail("Phiên đăng nhập đã hết hạn, em đăng nhập lại để làm bài nói.");
     const { lockAtPercent } = await getSettings(ctx);
-    if (isLocked(await scoreOf(ctx, student._id, quiz._id), lockAtPercent)) fail("Bài này đã được khoá.");
+    if (quiz.exam) {
+      if ((await scoreOf(ctx, student._id, quiz._id)) || !examAccepts(quiz.exam, Date.now())) fail("Bài thi này không còn nhận bài.");
+    } else if (isLocked(await scoreOf(ctx, student._id, quiz._id), lockAtPercent)) fail("Bài này đã được khoá.");
     return ctx.storage.generateUploadUrl();
   },
 });
@@ -343,7 +406,10 @@ export const submit = mutation({
     const preview = !studentMayTake && !!(await previewAdmin(ctx, args.adminToken));
     if (!studentMayTake && !preview) fail(student ? "Không tìm thấy bài này." : "Phiên đăng nhập đã hết hạn, em đăng nhập lại để nộp bài.");
     const { lockAtPercent } = await getSettings(ctx);
-    if (!preview && isLocked(await scoreOf(ctx, student!._id, quiz._id), lockAtPercent))
+    if (!preview && quiz.exam) {
+      if (await scoreOf(ctx, student!._id, quiz._id)) fail("Em đã nộp bài thi này rồi, mỗi em chỉ được làm 1 lần.");
+      if (!examAccepts(quiz.exam, Date.now())) fail(quiz.exam.phase === "upcoming" ? "Bài thi chưa mở." : "Bài thi đã đóng, không nộp được nữa.");
+    } else if (!preview && isLocked(await scoreOf(ctx, student!._id, quiz._id), lockAtPercent))
       fail(`Em đã hoàn thành bài này từ ${lockAtPercent}% trở lên nên bài đã được khoá.`);
     if (!preview && quiz.code) {
       const unlocked = await ctx.db
@@ -371,24 +437,9 @@ export const submit = mutation({
       await refreshScore(ctx, student!._id, quiz._id);
     }
 
-    // Answers and explanations only for questions the student actually answered; a blank
-    // question keeps its answer hidden so it can't be copied on the next try or passed on.
-    // The teacher's preview still shows every answer.
-    const review: Record<string, { ok: boolean; answered: boolean; answer: number | string | null; explain: string; essay: boolean }> = {};
-    quiz.sections.forEach((sec, si) =>
-      sec.questions.forEach((q, qi) => {
-        const key = `${si}-${qi}`;
-        const answered = isAnswered(q, answers[key]);
-        const reveal = (answered || preview) && q.type !== "essay" && q.type !== "speak";
-        review[key] = {
-          ok: isCorrect(q, answers[key]),
-          answered,
-          answer: !reveal ? null : q.type === "mcq" ? q.answer : q.type === "fill" ? q.answer[0] ?? "" : null,
-          explain: reveal ? q.explain ?? "" : "",
-          essay: q.type === "essay" || q.type === "speak",
-        };
-      }),
-    );
-    return { result: { ...result, band }, review, submittedAt: now, preview, essayPending: wroteEssay && !preview };
+    // Scheduled exam before the teacher releases results: say it's in, show nothing else.
+    if (!preview && quiz.exam && !quiz.exam.releasedAt)
+      return { result: { correct: 0, total: 0, wrong: 0, unanswered: 0, band: null }, review: {}, submittedAt: now, preview, essayPending: false, examHidden: true };
+    return { result: { ...result, band }, review: reviewOf(quiz, answers, preview), submittedAt: now, preview, essayPending: wroteEssay && !preview, examHidden: false };
   },
 });

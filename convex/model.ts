@@ -32,6 +32,16 @@ export const MAX_AUDIO_BYTES = 40 * 1024 * 1024;
 export const MAX_RECORDING_BYTES = 8 * 1024 * 1024;
 /** Recordings are deleted this long after submission; marks and comments are kept. */
 export const RECORDING_KEEP_DAYS = 5;
+/** Students mid-test when an exam closes may still hand in for this long. */
+export const EXAM_GRACE_MS = 15 * 60 * 1000;
+
+export type ExamInfo = { opensAt?: number; closesAt?: number; phase: "upcoming" | "open" | "ended"; endedAt?: number; releasedAt?: number };
+
+/** Whether a student may still submit a scheduled exam (open, or closed less than the grace period ago). */
+export function examAccepts(exam: ExamInfo, now: number): boolean {
+  return exam.phase === "open" || (exam.phase === "ended" && now - (exam.endedAt ?? 0) <= EXAM_GRACE_MS);
+}
+
 /** Speaking transcript per answer, and the student's note on their self-review. */
 export const MAX_TRANSCRIPT_CHARS = 4000;
 export const MAX_SELF_NOTE_CHARS = 1000;

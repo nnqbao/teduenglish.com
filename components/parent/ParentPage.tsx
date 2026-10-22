@@ -303,6 +303,7 @@ function Dashboard({ data }: { data: Overview }) {
                       <span className="sub">
                         {x.folder}
                         {x.skill ? ` · IELTS ${SKILL[x.skill]}` : ""}
+                        {x.held ? " · bài thi, chờ thầy cô công bố kết quả" : ""}
                       </span>
                       {x.writing && (
                         <details className="ph-writing">

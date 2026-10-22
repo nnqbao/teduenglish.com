@@ -33,6 +33,7 @@ function cardOf(q: Doc<"quizzes">) {
     accent: q.accent,
     speakPrep: q.speakPrep,
     speakMode: q.speakMode,
+    exam: q.exam,
     term: q.term,
     order: q.order,
     updatedAt: q.updatedAt,
@@ -121,7 +122,12 @@ export function doneMap(scores: Score[], cards: Card[], lockAtPercent: number): 
   for (const s of scores) {
     const slug = slugOf.get(s.quizId);
     if (!slug) continue;
-    map[slug] = { best: s.best, last: s.last, total: s.total, at: s.lastAt, count: s.count, review: s.review ?? null, locked: isLocked(s, lockAtPercent), band: s.band ?? null };
+    const card = cards.find((c) => c.quizId === s.quizId);
+    if (card?.exam && !card.exam.releasedAt) {
+      map[slug] = { best: 0, last: 0, total: 0, at: s.lastAt, count: s.count, review: null, locked: true, band: null, hidden: true };
+      continue;
+    }
+    map[slug] = { best: s.best, last: s.last, total: s.total, at: s.lastAt, count: s.count, review: s.review ?? null, locked: !!card?.exam || isLocked(s, lockAtPercent), band: s.band ?? null, hidden: false };
   }
   return map;
 }

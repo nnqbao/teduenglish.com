@@ -44,6 +44,19 @@ export const accentValidator = v.optional(v.union(v.literal("uk"), v.literal("us
 /** Speaking: "exam" runs itself with timers; "practice" lets the student record each question at their own pace; "both" lets them choose. */
 export const speakModeValidator = v.optional(v.union(v.literal("exam"), v.literal("practice"), v.literal("both")));
 export const selfReviewValidator = v.object({ criteria: v.array(v.number()), note: v.string() });
+/**
+ * Scheduled exam (e.g. the November IELTS mock test): visible but locked until it opens, one attempt
+ * per student, closed afterwards, results hidden until the teacher releases them.
+ */
+export const examValidator = v.optional(
+  v.object({
+    opensAt: v.optional(v.number()),
+    closesAt: v.optional(v.number()),
+    phase: v.union(v.literal("upcoming"), v.literal("open"), v.literal("ended")),
+    endedAt: v.optional(v.number()),
+    releasedAt: v.optional(v.number()),
+  }),
+);
 
 export const resourceKindValidator = v.union(
   v.literal("exercise"),
@@ -110,6 +123,7 @@ export default defineSchema({
     accent: accentValidator,
     speakPrep: v.optional(v.number()),
     speakMode: speakModeValidator,
+    exam: examValidator,
     term: termValidator,
     order: v.number(),
     updatedAt: v.number(),
@@ -216,6 +230,7 @@ export default defineSchema({
     accent: accentValidator, // listening voice, default "uk"
     speakPrep: v.optional(v.number()), // Speaking: seconds to get ready before the first question (15 or 30)
     speakMode: speakModeValidator,
+    exam: examValidator,
     // Leaving the test (other tab/app) warns once, then locks the account. Unset → on for IELTS Reading/Writing and essays.
     focusGuard: v.optional(v.boolean()),
     term: termValidator, // semester group inside the folder

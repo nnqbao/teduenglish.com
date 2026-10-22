@@ -107,8 +107,40 @@ export function doneLabel(rec: DoneMap[string]): string {
   return `${rec.best}/${rec.total}`;
 }
 
+/** "08:00 · 15/11" in the student's local time. */
+export function examTime(ms: number | null) {
+  if (!ms) return "";
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} · ${d.getDate()}/${d.getMonth() + 1}`;
+}
+
+/** What a scheduled exam's card says, or null when it can be opened like any quiz. */
+export function examLock(quiz: QuizMeta, rec: DoneMap[string] | undefined): { title: string; meta: string } | null {
+  const e = quiz.exam;
+  if (!e) return null;
+  if (rec) return { title: `✓ ${quiz.title}`, meta: rec.hidden ? "Đã nộp bài thi · chờ công bố kết quả" : `Đã nộp bài thi · ${doneLabel(rec)}` };
+  if (e.phase === "upcoming") return { title: `🔒 ${quiz.title}`, meta: e.opensAt ? `Bài thi · mở lúc ${examTime(e.opensAt)}` : "Bài thi · chưa mở" };
+  if (e.phase === "ended") return { title: quiz.title, meta: "Bài thi đã đóng" };
+  return null;
+}
+
 export function QuizButton({ quiz, done }: { quiz: QuizMeta; done: DoneMap }) {
   const rec = done[quiz.id];
+  const exam = examLock(quiz, rec);
+  if (exam)
+    return (
+      <span className={`quiz-btn locked exam-locked${rec ? " done" : ""}`} aria-disabled="true">
+        <span className="q-title">{exam.title}</span>
+        <span className="q-meta">{exam.meta}</span>
+      </span>
+    );
+  if (quiz.exam)
+    return (
+      <Link className="quiz-btn exam-open" href={`/bai/${quiz.id}`}>
+        <span className="q-title">🎯 {quiz.title}</span>
+        <span className="q-meta">Đang mở · vào thi →</span>
+      </Link>
+    );
   if (rec?.locked)
     return (
       <span className="quiz-btn done locked" aria-disabled="true" title="Em đã hoàn thành bài này, bài đã được khoá">

@@ -13,12 +13,15 @@ export { skillOf, attemptBand };
 
 export type IeltsTest = { id: string; title: string; skill: IeltsSkill; folder: string };
 
-/** Best band per student per IELTS test (from the small score rows, not the attempts). */
-export async function ieltsBoard(ctx: Ctx) {
+/**
+ * Best band per student per IELTS test (from the small score rows, not the attempts).
+ * Scheduled exams count only once their results are released, unless `withUnreleased` (teachers).
+ */
+export async function ieltsBoard(ctx: Ctx, withUnreleased = false) {
   const tests: IeltsTest[] = [];
   const scores: Record<string, Record<string, number>> = {};
   for (const c of await allCards(ctx)) {
-    if (!c.skill) continue;
+    if (!c.skill || (c.exam && !c.exam.releasedAt && !withUnreleased)) continue;
     tests.push({ id: c.slug, title: c.title, skill: c.skill, folder: c.folder });
     for (const s of await ctx.db.query("scores").withIndex("by_quiz", (x) => x.eq("quizId", c.quizId)).collect())
       if (s.band != null) (scores[s.studentId] ??= {})[c.slug] = s.band;
@@ -113,7 +116,7 @@ export const leaderboard = query({
   args: { token: v.string() },
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
-    const { tests, scores } = await ieltsBoard(ctx);
+    const { tests, scores } = await ieltsBoard(ctx, true);
     const students = (await ctx.db.query("students").collect()).filter((s) => scores[s._id]);
     return {
       tests,

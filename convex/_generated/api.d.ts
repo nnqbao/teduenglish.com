@@ -13,6 +13,7 @@ import type * as clarify from "../clarify.js";
 import type * as clarifyData from "../clarifyData.js";
 import type * as crons from "../crons.js";
 import type * as drafts from "../drafts.js";
+import type * as exam from "../exam.js";
 import type * as guard from "../guard.js";
 import type * as lib from "../lib.js";
 import type * as model from "../model.js";
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   clarifyData: typeof clarifyData;
   crons: typeof crons;
   drafts: typeof drafts;
+  exam: typeof exam;
   guard: typeof guard;
   lib: typeof lib;
   model: typeof model;

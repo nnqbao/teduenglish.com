@@ -890,6 +890,10 @@ const FAQ: [string, React.ReactNode][] = [
     "Trang Thống kê: thẻ “Chuyên cần” (tỷ lệ bài đã làm / bài được giao, lọc theo lớp và thư mục) và thẻ “Xếp hạng IELTS” (lọc theo lớp, kỹ năng, từng bài; bật “Ẩn tên” khi chiếu cho cả lớp). Cả hai đều tải Excel được. Học sinh tự xem thứ hạng IELTS của mình trong lớp ở trang học tập (tên các bạn khác được ẩn); phụ huynh không thấy bảng này. Muốn bài Writing vào bảng xếp hạng: đặt bài trong thư mục IELTS hoặc chọn “IELTS Writing” ở ô Kỹ năng IELTS, và chấm band cho từng Task.",
   ],
   [
+    "Tổ chức thi thử tập trung (ví dụ IELTS tháng 11) thế nào?",
+    "Tạo một thư mục (ví dụ “Thi thử IELTS tháng 11”) và mở cho các lớp dự thi. Soạn 4 bài Listening, Reading, Writing, Speaking; ở mỗi bài bật “🎯 Bài thi tập trung”, đặt giờ mở và giờ đóng đề, bật “Hiện cho học sinh”. Trước giờ thi học sinh thấy bài mờ kèm 🔒 “mở lúc …” và không xem được đề; đúng giờ bài tự mở (không cần tải lại trang). Mỗi em làm 1 lần, quá giờ đóng thì bài mờ lại (em đang làm dở được thêm 15 phút để nộp). Kết quả, band và đáp án chỉ hiện cho học sinh, phụ huynh và bảng xếp hạng khi thầy cô bấm “📣 Công bố kết quả” trong trang soạn bài. Có thể bấm “Mở ngay” / “Đóng đề” bất cứ lúc nào.",
+  ],
+  [
     "Học sinh làm chưa xong bài thì sao?",
     "Bài được tự động lưu lên máy chủ trong lúc em làm (câu đã chọn, bài viết, thời gian đã dùng). Lần sau đăng nhập, kể cả trên máy khác, trang học tập có mục “Bài em đang làm dở” với nút “Em vào làm tiếp nhé”; bài có đếm giờ chạy tiếp với số phút còn lại. Bài thường có thêm nút “💾 Lưu bài, lần sau làm tiếp”. Bài có chống chuyển tab vẫn tự lưu, nhưng rời trang bài (kể cả về trang học tập) vẫn bị tính là rời bài. Bài làm dở quá 60 ngày tự xoá.",
   ],

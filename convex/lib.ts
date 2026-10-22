@@ -256,7 +256,7 @@ export async function saveAttempt(
 }
 
 /** What a list needs about a quiz: a quiz card (summary.ts) or a full quiz via quizMeta. */
-export type MetaSource = Pick<Doc<"quizzes">, "slug" | "folder" | "title" | "subtitle" | "minutes" | "code" | "featured" | "ielts" | "timer" | "accent" | "speakPrep" | "speakMode" | "term"> & {
+export type MetaSource = Pick<Doc<"quizzes">, "slug" | "folder" | "title" | "subtitle" | "minutes" | "code" | "featured" | "ielts" | "timer" | "accent" | "speakPrep" | "speakMode" | "exam" | "term"> & {
   questionCount: number;
   hasEssay: boolean;
   hasSpeak: boolean;
@@ -278,7 +278,9 @@ export function metaOf(q: MetaSource) {
     hasSpeak: q.hasSpeak,
     guard: q.guard,
     speakPrep: q.speakPrep ?? 15,
-    speakMode: q.speakMode ?? "both",
+    // Scheduled exams are always taken as a timed test.
+    speakMode: q.exam ? ("exam" as const) : (q.speakMode ?? "both"),
+    exam: q.exam ? { phase: q.exam.phase, opensAt: q.exam.opensAt ?? null, closesAt: q.exam.closesAt ?? null, released: !!q.exam.releasedAt } : null,
     timer: q.timer ?? (q.minutes > 0 ? "count" : "off"),
     accent: q.accent ?? "uk",
     term: q.term ?? null,
@@ -367,6 +369,8 @@ export type DoneRecord = {
   locked: boolean;
   /** Best IELTS band (teacher-marked for Writing/Speaking). */
   band: number | null;
+  /** A scheduled exam whose results aren't released yet: handed in, nothing else shown. */
+  hidden: boolean;
 };
 
 /** Resource as shown to a student who may open its folder. */

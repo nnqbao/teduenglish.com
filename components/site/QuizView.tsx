@@ -9,7 +9,7 @@ import { api } from "@/convex/_generated/api";
 import type { Answers } from "@/convex/model";
 import { RECORDING_KEEP_DAYS, SPEAKING_CRITERIA, WRITING_CRITERIA, writingBand, normAnswer, parseDialogue, wordCount } from "@/convex/model";
 import { Rich, copyText, errMsg, sdel, sget, shuffle, signalReady, sset, stamp } from "@/lib/ui";
-import { GateLogin, GateNoAccess, Loading, Missing, Swoosh } from "./parts";
+import { GateLogin, GateNoAccess, Loading, Missing, Swoosh, examTime } from "./parts";
 import { useSite } from "./SiteShell";
 import FocusGuard, { withGuardPaused } from "./FocusGuard";
 import SpeakingPractice from "./SpeakingPractice";
@@ -46,7 +46,8 @@ export default function QuizView({ id }: { id: string }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (live?.status === "ok") setSitting(live);
   }, [live]);
-  const data = live?.status === "mastered" && sitting ? sitting : live;
+  // Same when an exam closes while the student is still answering: they finish within the grace period.
+  const data = (live?.status === "mastered" || live?.status === "examClosed") && sitting ? sitting : live;
   // Locked out for leaving a guarded test: the session is gone, so show this instead of the login gate.
   const [lockedOut, setLockedOut] = useState(false);
 
@@ -88,6 +89,7 @@ export default function QuizView({ id }: { id: string }) {
         <div className="banner-meta">
           <span>{m.questionCount} câu</span>
           {m.minutes > 0 && <span>{m.timer === "off" ? `Khoảng ${m.minutes} phút` : `⏱ ${m.minutes} phút${m.timer === "auto" ? " · tự nộp khi hết giờ" : ""}`}</span>}
+          {m.exam && <span>🎯 Bài thi tập trung · làm 1 lần</span>}
           {m.hasSpeak ? <span>🎤 Ghi âm · {teacher} chấm band</span> : m.hasEssay ? <span>Có bài viết · {teacher} nhận xét</span> : <span>Chấm tự động</span>}
           {(m.ielts === "listening" || m.ielts === "reading") && <span>Band tham khảo</span>}
         </div>
@@ -95,6 +97,20 @@ export default function QuizView({ id }: { id: string }) {
       {data.status === "login" && <GateLogin title="Đăng nhập để làm bài" note="Nhập mã cá nhân trước, sau đó em sẽ vào thẳng bài này." />}
       {data.status === "noaccess" && <GateNoAccess name={m.folderName} />}
       {data.status === "locked" && <UnlockGate meta={m} />}
+      {data.status === "examWait" && <ExamWait opensAt={m.exam?.opensAt ?? null} />}
+      {data.status === "examClosed" && (
+        <section className="gate">
+          <div>
+            <p className="eyebrow">Bài thi</p>
+            <h2>Bài thi đã đóng</h2>
+            <p className="small muted">Giờ thi đã kết thúc. Nếu em có lý do vắng thi, em nhắn {teacher} nhé.</p>
+          </div>
+          <Link className="btn btn-primary" href="/">
+            Về trang học tập
+          </Link>
+        </section>
+      )}
+      {data.status === "examDone" && <ExamDone result={data.result} sections={data.sections} ielts={!!m.ielts} />}
       {data.status === "mastered" && (
         <section className="gate">
           <div>
@@ -169,6 +185,118 @@ function UnlockGate({ meta }: { meta: Meta }) {
         </button>
       </form>
     </section>
+  );
+}
+
+/* ---------- scheduled exams ---------- */
+
+/** Before the exam opens: a countdown. The page switches to the test by itself when the teacher's schedule opens it. */
+function ExamWait({ opensAt }: { opensAt: number | null }) {
+  const { teacher } = useSite();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const left = opensAt ? Math.max(0, Math.round((opensAt - now) / 1000)) : null;
+  const d = left != null ? Math.floor(left / 86400) : 0;
+  return (
+    <section className="gate">
+      <div>
+        <p className="eyebrow">Bài thi tập trung</p>
+        <h2>🔒 Đề thi chưa mở</h2>
+        {opensAt ? (
+          <>
+            <p className="small muted">Đề sẽ mở lúc {examTime(opensAt)}. Em giữ nguyên trang này, đến giờ bài thi tự hiện ra.</p>
+            <p className="exam-count">{left ? `${d ? `${d} ngày ` : ""}${clock(left % 86400)}` : "Đang mở đề…"}</p>
+          </>
+        ) : (
+          <p className="small muted">{teacher} sẽ mở đề khi đến giờ thi. Em giữ nguyên trang này, bài thi sẽ tự hiện ra.</p>
+        )}
+        <p className="tiny muted">Mỗi em chỉ làm 1 lần. Chuẩn bị tai nghe, kiểm tra mạng và không chuyển tab khi đang thi.</p>
+      </div>
+    </section>
+  );
+}
+
+type ExamDoneData = Extract<QuizData, { status: "examDone" }>;
+
+/** After handing in: wait for the results, then the score, band and the answers to what the student did. */
+function ExamDone({ result, sections, ielts }: { result: ExamDoneData["result"]; sections: ExamDoneData["sections"]; ielts: boolean }) {
+  const { teacher } = useSite();
+  if (!result)
+    return (
+      <section className="gate">
+        <div>
+          <p className="eyebrow">Bài thi tập trung</p>
+          <h2>✓ Em đã nộp bài thi</h2>
+          <p className="small muted">Kết quả sẽ hiện ở đây khi {teacher} công bố. Mỗi em chỉ làm 1 lần nên em không cần làm lại.</p>
+        </div>
+        <Link className="btn btn-primary" href="/">
+          Về trang học tập
+        </Link>
+      </section>
+    );
+  const pct = result.total ? Math.round((result.correct / result.total) * 100) : 0;
+  let num = 0;
+  return (
+    <div className="quiz-wrap">
+      <section className="result">
+        <div className="score-dial" style={{ "--p": result.total ? pct : 100 } as React.CSSProperties}>
+          <div className="inner">
+            {result.total ? (
+              <>
+                <b>
+                  {result.correct}/{result.total}
+                </b>
+                <small>{pct}%</small>
+              </>
+            ) : (
+              <b style={{ fontSize: "2.2rem" }}>✓</b>
+            )}
+          </div>
+        </div>
+        <div>
+          <p className="eyebrow">Kết quả bài thi</p>
+          <h2>{ielts && result.band != null ? `Band ${result.band.toFixed(1)}` : "Đã có kết quả"}</h2>
+          <p className="r-msg">Nộp lúc {stamp(result.submittedAt)}. Đáp án chỉ hiện cho những câu em đã làm.</p>
+        </div>
+      </section>
+      {sections?.map((sec, si) => (
+        <section className="q-section" key={si}>
+          <h2 className="q-section-title">{sec.title || "Câu hỏi"}</h2>
+          {sec.questions.map((q, qi) => {
+            num++;
+            const key = `${si}-${qi}`;
+            const r = result.review[key];
+            if (!r || r.essay) return null;
+            const given = result.answers[key];
+            const shown = (v: unknown) => (q.type === "mcq" && typeof v === "number" ? q.options[v] ?? "" : String(v ?? ""));
+            return (
+              <article key={key} className={`q-card${r.ok ? " ok" : r.answered ? " no" : ""}`}>
+                <div className="q-head">
+                  <span>Câu {num}</span>
+                  {r.ok ? <span className="state-ok">Đúng</span> : <span className="state-no">{r.answered ? "Chưa đúng" : "Chưa làm"}</span>}
+                </div>
+                <p className="q-text">
+                  <Rich text={q.q} />
+                </p>
+                <p className="explain">
+                  {r.answered ? (
+                    <>
+                      Em trả lời: <b>{shown(given)}</b> · Đáp án: <b>{shown(r.answer)}</b>
+                      {r.explain ? ` · ${r.explain}` : ""}
+                    </>
+                  ) : (
+                    "🔒 Em chưa làm câu này nên đáp án được ẩn."
+                  )}
+                </p>
+              </article>
+            );
+          })}
+        </section>
+      ))}
+    </div>
   );
 }
 
@@ -563,7 +691,8 @@ function QuizRunner({
           </button>
         </p>
       )}
-      {att.submitted && att.outcome && (
+      {att.submitted && att.outcome?.examHidden && <p className="alert alert-good">✓ Em đã nộp bài thi. Kết quả sẽ hiện khi thầy cô công bố.</p>}
+      {att.submitted && att.outcome && !att.outcome.examHidden && (
         <ResultBlock
           outcome={att.outcome}
           ielts={!!meta.ielts}

@@ -6,7 +6,7 @@ import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { firstName } from "@/convex/model";
 import { stamp } from "@/lib/ui";
-import { FolderCard, Loading, LoginForm, Swoosh, doneLabel, type DoneMap, type FolderInfo, type QuizMeta, type ResourceRow } from "./parts";
+import { FolderCard, Loading, LoginForm, Swoosh, doneLabel, examLock, type DoneMap, type FolderInfo, type QuizMeta, type ResourceRow } from "./parts";
 import { useSite, type HomeData } from "./SiteShell";
 
 export default function HomeView() {
@@ -162,6 +162,17 @@ function Dashboard({ home }: { home: HomeData }) {
         <div className="featured">
           {featured.map((q) => {
             const rec = done[q.id];
+            const exam = examLock(q, rec);
+            if (exam)
+              return (
+                <div key={q.id} className="feature-card locked" aria-disabled="true">
+                  <div className="ft-text">
+                    <p className="eyebrow">{folderName(q.folder)}</p>
+                    <h3>{exam.title}</h3>
+                    <p>{exam.meta}</p>
+                  </div>
+                </div>
+              );
             if (rec?.locked)
               return (
                 <div key={q.id} className="feature-card locked" aria-disabled="true">

@@ -234,6 +234,20 @@ describe("statistics", () => {
     expect(fileSlug("  ?? ")).toBe("");
   });
 
+  it("opens and closes scheduled exams on time, with a grace period to hand in", async () => {
+    const { phaseAt } = await import("@/convex/exam");
+    const { examAccepts, EXAM_GRACE_MS } = await import("@/convex/model");
+    const t = 1_800_000_000_000;
+    expect(phaseAt({ opensAt: t, closesAt: t + 3_600_000 }, t - 1)).toBe("upcoming");
+    expect(phaseAt({ opensAt: t, closesAt: t + 3_600_000 }, t)).toBe("open");
+    expect(phaseAt({ opensAt: t, closesAt: t + 3_600_000 }, t + 3_600_000)).toBe("ended");
+    expect(phaseAt({ phase: "open" }, t)).toBe("open"); // no times: the teacher's buttons decide
+    expect(examAccepts({ phase: "open" }, t)).toBe(true);
+    expect(examAccepts({ phase: "upcoming" }, t)).toBe(false);
+    expect(examAccepts({ phase: "ended", endedAt: t }, t + EXAM_GRACE_MS)).toBe(true);
+    expect(examAccepts({ phase: "ended", endedAt: t }, t + EXAM_GRACE_MS + 1)).toBe(false);
+  });
+
   it("derives the parent code from the student code", async () => {
     const { parentCodeFor } = await import("@/convex/model");
     expect(parentCodeFor("thanhtoan3580")).toBe("thanhtoanph3580");

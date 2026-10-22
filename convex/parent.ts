@@ -76,11 +76,28 @@ export const overview = query({
       best: { correct: number; total: number; pct: number } | null;
       band: number | null;
       writing: { status: "pending" | "done"; essays: { prompt: string; band: number | null; criteria: { name: string; band: number }[]; comment: string }[] } | null;
+      /** A scheduled exam whose results the teacher hasn't released yet. */
+      held: boolean;
     }[] = [];
     for (const [quizId, list] of byQuiz) {
       const q = await ctx.db.get(quizId as Doc<"quizzes">["_id"]);
       if (!q) continue;
       const skill = skillOf(q);
+      if (q.exam && !q.exam.releasedAt) {
+        results.push({
+          id: q.slug,
+          title: q.title,
+          folder: (await folderBySlug(ctx, q.folder))?.name ?? q.folder,
+          skill,
+          attempts: list.length,
+          lastAt: Math.max(...list.map((a) => a.submittedAt)),
+          best: null,
+          band: null,
+          writing: null,
+          held: true,
+        });
+        continue;
+      }
       const scored = list.filter((a) => a.total > 0);
       const best = scored.sort((a, b) => b.correct / b.total - a.correct / a.total)[0];
       const bands = skill ? list.map((a) => attemptBand(q, a, skill)).filter((b): b is number => b != null) : [];
@@ -117,6 +134,7 @@ export const overview = query({
         best: best ? { correct: best.correct, total: best.total, pct: percent(best.correct, best.total) } : null,
         band: bands.length ? Math.max(...bands) : null,
         writing: lastWriting ? { status: lastWriting.reviewStatus!, essays } : null,
+        held: false,
       });
     }
     results.sort((a, b) => b.lastAt - a.lastAt);

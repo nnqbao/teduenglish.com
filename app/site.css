@@ -870,3 +870,9 @@ td code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospac
 .topic-status.done { color: var(--good); }
 .topic-status.wait, .topic-status.draft { color: var(--accent-ink); }
 .speak-entry { margin-top: 18px; }
+
+/* ---------- Scheduled exams ---------- */
+.quiz-btn.exam-locked { opacity: .55; filter: grayscale(.4); cursor: not-allowed; }
+.quiz-btn.exam-locked.done { opacity: .8; filter: none; }
+.quiz-btn.exam-open { border-color: var(--accent); background: var(--accent-soft); }
+.exam-count { font-family: var(--font-display); font-size: 2.4rem; font-weight: 800; color: var(--brand-ink); font-variant-numeric: tabular-nums; line-height: 1.1; }

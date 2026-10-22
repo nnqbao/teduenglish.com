@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
+import { examTime } from "@/components/site/parts";
 import { stamp } from "@/lib/ui";
 import { useAdmin, useRun } from "./AdminShell";
 
@@ -88,7 +89,14 @@ export default function Quizzes() {
                   <td>
                     {x.published ? <span className="status on">Đang hiện</span> : <span className="status draft">Bản nháp</span>}
                     {x.featured && <span className="sub">★ Nổi bật</span>}
-                    {x.ielts && <span className="sub">IELTS {x.ielts === "listening" ? "Listening" : "Reading"}</span>}
+                    {x.ielts && <span className="sub">IELTS {x.ielts[0].toUpperCase() + x.ielts.slice(1)}</span>}
+                    {x.exam && (
+                      <span className="sub">
+                        🎯 Thi ·{" "}
+                        {x.exam.phase === "open" ? "đang mở" : x.exam.phase === "ended" ? "đã đóng" : x.exam.opensAt ? `mở ${examTime(x.exam.opensAt)}` : "chưa mở"}
+                        {x.exam.releasedAt ? " · đã công bố" : ""}
+                      </span>
+                    )}
                     {x.hasEssay && <span className="sub">✍️ Có bài viết</span>}
                     {x.term && <span className="sub">{x.term === "hk1" ? "Học kỳ 1" : "Học kỳ 2"}</span>}
                   </td>

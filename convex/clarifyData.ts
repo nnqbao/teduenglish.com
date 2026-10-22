@@ -54,6 +54,7 @@ export const DONE: { area: string; icon: string; items: string[] }[] = [
       "Mã phụ huynh = mã học sinh thêm “ph” trước 4 số cuối (thanhtoan3580 → thanhtoanph3580); phụ huynh chỉ xem kết quả của con (tiến độ, % hoàn thành, bài chưa làm, điểm IELTS & Global Success) tại /phu-huynh, không thấy bảng xếp hạng",
       "Học sinh xem thứ hạng IELTS của mình trong lớp ngay trên trang học tập (tên các bạn khác được ẩn)",
       "Đáp án chỉ hiện cho những câu học sinh đã làm và nộp; câu bỏ trống không hiện đáp án",
+      "Thi thử tập trung: mỗi kỹ năng có giờ mở/đóng đề (tự mở đúng giờ, có nút Mở ngay/Đóng đề), học sinh thấy bài mờ trước giờ thi, làm 1 lần, kết quả chỉ hiện khi thầy bấm Công bố",
       "Speaking luyện tập theo mockup của thầy: trang chủ đề /speaking (đã nộp x/y), tab Part 1–3, tự ghi âm/ghi lại từng câu, bản chép lời tự động (máy tính dùng Chrome/Edge/Safari; trình duyệt không hỗ trợ thì ẩn nút), phiếu tự đánh giá 4 tiêu chí, file MP3, lưu bài làm dở",
       "IELTS Speaking: kiểm tra micro, chuẩn bị 15/30 giây, máy đọc câu hỏi + tiếng “tít” + thu âm từng câu; thầy nghe và chấm band 4 tiêu chí; ghi âm tự xoá sau 5 ngày (đủ để thầy chấm)",
       "Làm bài dở được tự lưu lên máy chủ; lần sau đăng nhập (máy nào cũng được) bấm “Em vào làm tiếp nhé”, đồng hồ chạy tiếp từ chỗ dừng",

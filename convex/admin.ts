@@ -25,7 +25,8 @@ import {
 } from "./lib";
 import { accentValidator, essayReviewValidator, ieltsValidator, resourceKindValidator, sectionValidator, termValidator, timerValidator, speakModeValidator } from "./schema";
 import { cardByQuiz, refreshScore, syncCard } from "./summary";
-import { MAX_AUDIO_BYTES, MAX_PDF_BYTES, SPEAKING_REVIEW_KEY, formatBytes, hasSpeak, isCorrect, normCode, parentCodeFor, slugify, validateSections, wordCount, writingBand, viCompare } from "./model";
+import { phaseAt, scheduleExam } from "./exam";
+import { type ExamInfo, MAX_AUDIO_BYTES, MAX_PDF_BYTES, SPEAKING_REVIEW_KEY, formatBytes, hasSpeak, isCorrect, normCode, parentCodeFor, slugify, validateSections, wordCount, writingBand, viCompare } from "./model";
 
 const tokenArg = { token: v.string() };
 
@@ -622,6 +623,7 @@ export const quizzes = query({
           attemptCount: b?.count ?? 0,
           avgPct: b?.scored ? Math.round(b.sumPct / b.scored) : null,
           updatedAt: q.updatedAt,
+          exam: q.exam ?? null,
         };
       });
   },
@@ -658,8 +660,26 @@ const quizFields = {
   speakMode: speakModeValidator,
   term: termValidator,
   focusGuard: v.optional(v.boolean()),
+  // Scheduled exam: present = this quiz is one (times optional: without them the teacher opens it by hand).
+  exam: v.optional(v.object({ opensAt: v.optional(v.number()), closesAt: v.optional(v.number()) })),
   sections: v.array(sectionValidator),
 };
+
+/** The exam settings to store: phase follows the schedule when the times change, otherwise stays (manual buttons). */
+function examSettings(input: { opensAt?: number; closesAt?: number } | undefined, prev: ExamInfo | undefined) {
+  if (!input) return { exam: undefined, reschedule: false };
+  const { opensAt, closesAt } = input;
+  if (opensAt != null && closesAt != null && closesAt <= opensAt) fail("Giờ đóng đề phải sau giờ mở đề.");
+  const now = Date.now();
+  const reschedule = !prev || prev.opensAt !== opensAt || prev.closesAt !== closesAt;
+  const phase = reschedule ? phaseAt({ opensAt, closesAt, phase: prev?.phase }, now) : prev!.phase;
+  const exam: ExamInfo = { phase };
+  if (opensAt != null) exam.opensAt = opensAt;
+  if (closesAt != null) exam.closesAt = closesAt;
+  if (phase === "ended") exam.endedAt = prev?.phase === "ended" && prev.endedAt ? prev.endedAt : Math.min(now, closesAt ?? now);
+  if (prev?.releasedAt) exam.releasedAt = prev.releasedAt;
+  return { exam, reschedule };
+}
 
 export const saveQuiz = mutation({
   args: { token: v.string(), id: v.optional(v.id("quizzes")), ...quizFields },
@@ -722,11 +742,14 @@ export const saveQuiz = mutation({
       sections,
       updatedAt: Date.now(),
     };
-    if (id) {
-      const prev = await ctx.db.get(id);
-      if (!prev) fail("Không tìm thấy bài.");
+    const prev = id ? await ctx.db.get(id) : null;
+    if (id && !prev) fail("Không tìm thấy bài.");
+    const { exam, reschedule } = examSettings(args.exam, prev?.exam);
+    if (exam) Object.assign(data, { exam });
+    if (id && prev) {
       await ctx.db.replace(id, { ...data, order: prev.order });
       await syncCard(ctx, id);
+      if (exam && reschedule) await scheduleExam(ctx, id, exam);
       const kept = new Set<string>(quizFileIds(sections));
       await releaseFiles(ctx, quizFileIds(prev.sections).filter((x) => !kept.has(x)), id);
       return { id, slug };
@@ -734,6 +757,7 @@ export const saveQuiz = mutation({
     const inFolder = await ctx.db.query("quizzes").withIndex("by_folder", (q) => q.eq("folder", args.folder)).collect();
     const newId = await ctx.db.insert("quizzes", { ...data, order: inFolder.reduce((m, q) => Math.max(m, q.order), 0) + 1 });
     await syncCard(ctx, newId);
+    if (exam && reschedule) await scheduleExam(ctx, newId, exam);
     return { id: newId, slug };
   },
 });
