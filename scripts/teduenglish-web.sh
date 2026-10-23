@@ -4,7 +4,7 @@
 set -euo pipefail
 
 readonly ROOT="/Users/vsc_agent/projects/teduenglish"
-readonly NODE_BIN="/Users/vsc_agent/.nvm/versions/node/v26.8.2/bin"
+readonly NODE_BIN="/Users/vsc_agent/.nvm/versions/node/v26.12.1/bin"
 
 export HOME="/Users/vsc_agent"
 export PATH="${NODE_BIN}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
