@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { lastTwoWords, noMarks, normCode, parentCodeFor, parseStudentLines, phoneCode } from "@/convex/model";
+import { lastTwoWords, nameKey, noMarks, normCode, parentCodeFor, parseStudentLines, phoneCode } from "@/convex/model";
 import { downloadXlsx, readClassList, rowsFrom, type ClassListRow, type SheetTable } from "@/lib/excel";
 import { copyText, errMsg, stamp } from "@/lib/ui";
 import { Modal, useAdmin, useRun } from "./AdminShell";
@@ -313,13 +313,25 @@ function FolderChecks({ folders, value, onChange }: { folders: Folder[]; value: 
   );
 }
 
-function StudentForm({ student, folders, classes, onClose }: { student: Student | null; folders: Folder[]; classes: string[]; onClose: () => void }) {
+export function StudentForm({
+  student,
+  folders,
+  classes,
+  presetFolders = [],
+  onClose,
+}: {
+  student: Student | null;
+  folders: Folder[];
+  classes: string[];
+  presetFolders?: string[];
+  onClose: () => void;
+}) {
   const { token, toast } = useAdmin();
   const save = useMutation(api.admin.saveStudent);
   const [name, setName] = useState(student?.name ?? "");
   const [className, setClassName] = useState(student?.className ?? "");
   const [code, setCode] = useState(student?.code ?? "");
-  const [picked, setPicked] = useState<string[]>(student?.folders ?? []);
+  const [picked, setPicked] = useState<string[]>(student?.folders ?? presetFolders);
   const [active, setActive] = useState(student?.active ?? true);
   const [note, setNote] = useState(student?.note ?? "");
   const [err, setErr] = useState("");
@@ -412,7 +424,9 @@ function StudentForm({ student, folders, classes, onClose }: { student: Student 
 }
 
 type CodeMode = "random" | "lastTwo" | "file";
-type Preview = ClassListRow & { newCode: string | null; status: "ok" | "noclass" | "dup" | "exists" | "taken" | "badcode"; note: string };
+type Preview = ClassListRow & { newCode: string | null; status: "ok" | "noclass" | "dup" | "exists" | "taken" | "badcode" | "add" | "inside" | "many"; note: string };
+type NewStudent = { name: string; className: string; code: string; parentCode: string };
+type BulkDone = { created: NewStudent[]; added?: NewStudent[]; already?: NewStudent[]; skipped: { name: string; className: string; reason: string }[] };
 
 const STATUS_LABEL: Record<Preview["status"], string> = {
   ok: "Sẵn sàng",
@@ -421,12 +435,31 @@ const STATUS_LABEL: Record<Preview["status"], string> = {
   exists: "Đã có học sinh này",
   taken: "Mã đã được dùng",
   badcode: "Mã không hợp lệ",
+  add: "Đã có tài khoản → mở thư mục",
+  inside: "Đã có trong thư mục",
+  many: "Nhiều em cùng tên, thêm tay",
 };
 
-/** Paste a class list or upload an Excel file; preview every row before creating codes. */
-function BulkForm({ folders, classes, students, onClose }: { folders: Folder[]; classes: string[]; students: Student[]; onClose: () => void }) {
+/**
+ * Paste a class list or upload an Excel file; preview every row before creating codes.
+ * With `intoFolder` (the folder page), a name that already has an account just gets that folder opened.
+ */
+export function BulkForm({
+  folders,
+  classes,
+  students,
+  intoFolder,
+  onClose,
+}: {
+  folders: Folder[];
+  classes: string[];
+  students: Student[];
+  intoFolder?: { slug: string; name: string };
+  onClose: () => void;
+}) {
   const { token, toast } = useAdmin();
   const create = useMutation(api.admin.bulkCreateStudents);
+  const importTo = useMutation(api.admin.importToFolder);
   const [source, setSource] = useState<"file" | "paste">("file");
   const [text, setText] = useState("");
   const [sheet, setSheet] = useState<SheetTable | null>(null);
@@ -434,10 +467,10 @@ function BulkForm({ folders, classes, students, onClose }: { folders: Folder[]; 
   const [reading, setReading] = useState(false);
   const [className, setClassName] = useState("");
   const [mode, setMode] = useState<CodeMode>("lastTwo");
-  const [picked, setPicked] = useState<string[]>([]);
+  const [picked, setPicked] = useState<string[]>(intoFolder ? [intoFolder.slug] : []);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ created: { name: string; className: string; code: string; parentCode: string }[]; skipped: { name: string; className: string; reason: string }[] } | null>(null);
+  const [done, setDone] = useState<BulkDone | null>(null);
 
   const raw: ClassListRow[] =
     source === "file"
@@ -451,9 +484,18 @@ function BulkForm({ folders, classes, students, onClose }: { folders: Folder[]; 
   // Work out every row's fate before anything is created.
   const existing = new Set(students.map((s) => `${noMarks(s.name).toLowerCase()}|${s.className.toLowerCase()}`));
   const usedCodes = new Set(students.map((s) => s.code));
+  const byName = new Map<string, Student[]>();
+  if (intoFolder) for (const s of students) byName.set(nameKey(s.name), [...(byName.get(nameKey(s.name)) ?? []), s]);
   const seen = new Set<string>();
   const preview: Preview[] = raw.map((r) => {
-    const key = `${noMarks(r.name).toLowerCase()}|${r.className.toLowerCase()}`;
+    const key = intoFolder ? nameKey(r.name) : `${noMarks(r.name).toLowerCase()}|${r.className.toLowerCase()}`;
+    const same = intoFolder ? byName.get(key) ?? [] : [];
+    if (intoFolder && !seen.has(key) && same.length) {
+      seen.add(key);
+      const s = same[0];
+      const status = same.length > 1 ? "many" : s.folders.includes(intoFolder.slug) || s.folders.includes("*") ? "inside" : "add";
+      return { ...r, className: same.length > 1 ? r.className : s.className, newCode: same.length > 1 ? null : s.code, status, note: "" };
+    }
     const code = effectiveMode === "lastTwo" ? phoneCode(r.name, r.phone) : effectiveMode === "file" ? normCode(r.code) || null : null;
     let status: Preview["status"] = "ok";
     if (!r.className) status = "noclass";
@@ -466,7 +508,8 @@ function BulkForm({ folders, classes, students, onClose }: { folders: Folder[]; 
     const note = effectiveMode === "file" && !code ? "Thiếu mã → tạo mới" : "";
     return { ...r, newCode: code, status, note };
   });
-  const ready = preview.filter((p) => p.status === "ok");
+  const ready = preview.filter((p) => p.status === "ok" || p.status === "add");
+  const fresh = preview.filter((p) => p.status === "ok").length;
 
   async function onFile(file: File | undefined) {
     if (!file) return;
@@ -491,12 +534,14 @@ function BulkForm({ folders, classes, students, onClose }: { folders: Folder[]; 
     if (!ready.length) return setErr("Không còn dòng nào hợp lệ để tạo mã. Xem cột Trạng thái bên dưới.");
     if (!picked.length) return setErr("Chọn ít nhất một thư mục.");
     setBusy(true);
+    // Rows already in the folder go along too, so the summary can count them.
+    const rows = (intoFolder ? preview.filter((p) => p.status === "inside") : []).concat(ready).map((p) => ({
+      name: p.name,
+      className: p.className,
+      ...(p.status === "add" || p.status === "inside" ? {} : p.newCode ? { code: p.newCode } : effectiveMode === "lastTwo" ? { style: "lastTwo" as const } : {}),
+    }));
     try {
-      setDone(await create({ token, rows: ready.map((p) => ({
-          name: p.name,
-          className: p.className,
-          ...(p.newCode ? { code: p.newCode } : effectiveMode === "lastTwo" ? { style: "lastTwo" as const } : {}),
-        })), folders: picked }));
+      setDone(intoFolder ? await importTo({ token, folder: intoFolder.slug, rows }) : await create({ token, rows, folders: picked }));
     } catch (e2) {
       setErr(errMsg(e2));
     } finally {
@@ -505,10 +550,22 @@ function BulkForm({ folders, classes, students, onClose }: { folders: Folder[]; 
   }
 
   if (done) {
-    const out = done.created.map((s) => `${s.name} (${s.className}): ${s.code} · phụ huynh: ${s.parentCode}`).join("\n");
+    const added = done.added ?? [];
+    const already = done.already ?? [];
+    const line = (s: NewStudent) => `${s.name} (${s.className}): ${s.code} · phụ huynh: ${s.parentCode}`;
+    const out = [...done.created.map(line), ...(added.length ? ["", "Đã có tài khoản, vừa mở thư mục:", ...added.map(line)] : [])].join("\n").trim();
+    const title = intoFolder
+      ? `Đã thêm ${done.created.length + added.length} em vào “${intoFolder.name}”`
+      : `Đã tạo ${done.created.length} học sinh`;
     return (
-      <Modal title={`Đã tạo ${done.created.length} học sinh`} onClose={onClose} wide>
-        {done.created.length > 0 && <textarea className="textarea" readOnly value={out} rows={Math.min(12, done.created.length + 1)} onFocus={(e) => e.currentTarget.select()} />}
+      <Modal title={title} onClose={onClose} wide>
+        {intoFolder && (
+          <p className="small">
+            {done.created.length} em mới được tạo tài khoản · {added.length} em đã có tài khoản, vừa được mở thư mục
+            {already.length ? ` · ${already.length} em đã có sẵn trong thư mục` : ""}.
+          </p>
+        )}
+        {out && <textarea className="textarea" readOnly value={out} rows={Math.min(12, done.created.length + added.length + (added.length ? 3 : 1))} onFocus={(e) => e.currentTarget.select()} />}
         {done.skipped.length > 0 && (
           <div className="alert alert-bad">
             Bỏ qua {done.skipped.length} dòng:
@@ -520,18 +577,24 @@ function BulkForm({ folders, classes, students, onClose }: { folders: Folder[]; 
           <button
             className="btn btn-ghost"
             type="button"
-            disabled={!done.created.length}
+            disabled={!out}
             onClick={() =>
-              downloadXlsx(
-                "ma-hoc-sinh-moi.xlsx",
-                ["Họ tên", "Lớp", "Mã cá nhân", "Mã phụ huynh"],
-                done.created.map((s) => [s.name, s.className, s.code, s.parentCode]),
-              )
+              intoFolder
+                ? downloadXlsx(
+                    `ma-hoc-sinh-${intoFolder.slug}.xlsx`,
+                    ["Họ tên", "Lớp", "Mã cá nhân", "Mã phụ huynh", "Ghi chú"],
+                    [...done.created.map((s) => [s.name, s.className, s.code, s.parentCode, "Mới tạo"]), ...added.map((s) => [s.name, s.className, s.code, s.parentCode, "Đã có tài khoản"])],
+                  )
+                : downloadXlsx(
+                    "ma-hoc-sinh-moi.xlsx",
+                    ["Họ tên", "Lớp", "Mã cá nhân", "Mã phụ huynh"],
+                    done.created.map((s) => [s.name, s.className, s.code, s.parentCode]),
+                  )
             }
           >
             Tải file Excel
           </button>
-          <button className="btn btn-ghost" type="button" disabled={!done.created.length} onClick={() => copyText(out, () => toast("Đã sao chép danh sách mã."), () => {})}>
+          <button className="btn btn-ghost" type="button" disabled={!out} onClick={() => copyText(out, () => toast("Đã sao chép danh sách mã."), () => {})}>
             Sao chép
           </button>
           <button className="btn btn-primary" type="button" onClick={onClose}>
@@ -543,7 +606,12 @@ function BulkForm({ folders, classes, students, onClose }: { folders: Folder[]; 
   }
 
   return (
-    <Modal title="Thêm nhiều học sinh" onClose={onClose} wide>
+    <Modal title={intoFolder ? `Import học sinh vào “${intoFolder.name}”` : "Thêm nhiều học sinh"} onClose={onClose} wide>
+      {intoFolder && (
+        <p className="small muted">
+          Em nào trùng họ và tên với học sinh đã có tài khoản thì chỉ được mở thêm thư mục này, giữ nguyên mã cũ. Tên mới thì hệ thống tạo tài khoản mới.
+        </p>
+      )}
       <form className="stack" onSubmit={onSubmit} noValidate>
         <div className="checks" role="radiogroup" aria-label="Nguồn danh sách">
           <label className="check">
@@ -642,7 +710,7 @@ function BulkForm({ folders, classes, students, onClose }: { folders: Folder[]; 
             ))}
           </div>
         </fieldset>
-        <FolderChecks folders={folders} value={picked} onChange={setPicked} />
+        {!intoFolder && <FolderChecks folders={folders} value={picked} onChange={setPicked} />}
 
         {preview.length > 0 && (
           <div className="table-wrap" style={{ maxHeight: 300, overflowY: "auto" }}>
@@ -659,7 +727,7 @@ function BulkForm({ folders, classes, students, onClose }: { folders: Folder[]; 
               </thead>
               <tbody>
                 {preview.map((p, i) => (
-                  <tr key={i} className={p.status === "ok" ? "" : "is-off"}>
+                  <tr key={i} className={p.status === "ok" || p.status === "add" ? "" : "is-off"}>
                     <td>{i + 1}</td>
                     <td>{p.name}</td>
                     <td>{p.className || "—"}</td>
@@ -676,7 +744,15 @@ function BulkForm({ folders, classes, students, onClose }: { folders: Folder[]; 
                       )}
                       {p.note && <span className="sub">{p.note}</span>}
                     </td>
-                    <td>{p.status === "ok" ? <span className="status on">Sẵn sàng</span> : <span className="status off">{STATUS_LABEL[p.status]}</span>}</td>
+                    <td>
+                      {p.status === "ok" ? (
+                        <span className="status on">{intoFolder ? "Tạo mới" : "Sẵn sàng"}</span>
+                      ) : p.status === "add" ? (
+                        <span className="status on">{STATUS_LABEL.add}</span>
+                      ) : (
+                        <span className="status off">{STATUS_LABEL[p.status]}</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -688,13 +764,17 @@ function BulkForm({ folders, classes, students, onClose }: { folders: Folder[]; 
         </p>
         <div className="modal-foot">
           <span className="small muted" style={{ marginRight: "auto", alignSelf: "center" }}>
-            {preview.length ? `${ready.length}/${preview.length} dòng sẵn sàng` : ""}
+            {preview.length
+              ? intoFolder
+                ? `${fresh} em mới · ${ready.length - fresh} em đã có tài khoản · ${preview.length - ready.length} dòng bỏ qua`
+                : `${ready.length}/${preview.length} dòng sẵn sàng`
+              : ""}
           </span>
           <button className="btn btn-ghost" type="button" onClick={onClose}>
             Hủy
           </button>
           <button className="btn btn-primary" type="submit" disabled={busy || reading}>
-            {busy ? "Đang tạo mã…" : `Tạo mã cho ${ready.length} em`}
+            {busy ? "Đang tạo mã…" : intoFolder ? `Thêm ${ready.length} em vào thư mục` : `Tạo mã cho ${ready.length} em`}
           </button>
         </div>
       </form>

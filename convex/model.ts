@@ -69,6 +69,18 @@ export function normAnswer(s: unknown): string {
     .trim();
 }
 
+/**
+ * Same full name, ignoring case and extra spaces but keeping the accents ("Lê Thị Hà" ≠ "Lê Thị Hạ").
+ * Importing a class list into a folder treats a matching name as a student who already has an account.
+ */
+export function nameKey(s: unknown): string {
+  return String(s ?? "")
+    .normalize("NFC")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("vi");
+}
+
 export function noMarks(s: unknown): string {
   return String(s ?? "")
     .normalize("NFD")

@@ -2,6 +2,8 @@
 
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -18,6 +20,8 @@ export default function Folders() {
   const move = useMutation(api.admin.moveFolder);
   const del = useMutation(api.admin.deleteFolder);
   const [editing, setEditing] = useState<Folder | "new" | null>(null);
+  const router = useRouter();
+  const open = (f: Folder) => router.push(`/admin/thu-muc/${encodeURIComponent(f.slug)}`);
 
   return (
     <section className="panel">
@@ -25,7 +29,7 @@ export default function Folders() {
         <div>
           <p className="eyebrow">Cấu trúc bài học</p>
           <h2>Thư mục</h2>
-          <p className="small muted">Mỗi học sinh được mở một hoặc nhiều thư mục. Thứ tự ở đây là thứ tự hiện trên trang học sinh.</p>
+          <p className="small muted">Mỗi học sinh được mở một hoặc nhiều thư mục. Thứ tự ở đây là thứ tự hiện trên trang học sinh. Bấm vào một thư mục để xem bài làm và học sinh của thư mục đó.</p>
         </div>
         <div className="actions">
           <button className="btn btn-primary btn-sm" type="button" onClick={() => setEditing("new")}>
@@ -51,7 +55,14 @@ export default function Folders() {
             </thead>
             <tbody>
               {folders.map((f, i) => (
-                <tr key={f._id}>
+                <tr
+                  key={f._id}
+                  className="row-link"
+                  onClick={(e) => {
+                    // Whole row opens the folder, except its own buttons and links.
+                    if (!(e.target as HTMLElement).closest("button, a")) open(f);
+                  }}
+                >
                   <td>
                     <div className="row-actions">
                       <button className="link-btn" type="button" disabled={i === 0} onClick={() => run(() => move({ token, id: f._id, dir: -1 }))} aria-label="Lên">
@@ -63,7 +74,10 @@ export default function Folders() {
                     </div>
                   </td>
                   <td>
-                    <span className="tag">{f.badge}</span> <b>{f.name}</b>
+                    <span className="tag">{f.badge}</span>{" "}
+                    <Link href={`/admin/thu-muc/${encodeURIComponent(f.slug)}`}>
+                      <b>{f.name}</b>
+                    </Link>
                     <span className="sub">{f.detail}</span>
                   </td>
                   <td>
@@ -74,6 +88,9 @@ export default function Folders() {
                   <td className="num">{f.studentCount}</td>
                   <td>
                     <div className="row-actions">
+                      <Link className="link-btn" href={`/admin/thu-muc/${encodeURIComponent(f.slug)}`}>
+                        Mở
+                      </Link>
                       <button className="link-btn" type="button" onClick={() => setEditing(f)}>
                         Sửa
                       </button>

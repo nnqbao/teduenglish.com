@@ -26,7 +26,7 @@ import {
 import { accentValidator, essayReviewValidator, ieltsValidator, resourceKindValidator, sectionValidator, termValidator, timerValidator, speakModeValidator } from "./schema";
 import { cardByQuiz, refreshScore, syncCard } from "./summary";
 import { phaseAt, scheduleExam } from "./exam";
-import { type ExamInfo, MAX_AUDIO_BYTES, MAX_PDF_BYTES, SPEAKING_REVIEW_KEY, formatBytes, hasSpeak, isCorrect, normCode, parentCodeFor, slugify, validateSections, wordCount, writingBand, viCompare } from "./model";
+import { type ExamInfo, MAX_AUDIO_BYTES, MAX_PDF_BYTES, SPEAKING_REVIEW_KEY, formatBytes, hasSpeak, isCorrect, nameKey, normCode, parentCodeFor, slugify, validateSections, wordCount, writingBand, viCompare } from "./model";
 
 const tokenArg = { token: v.string() };
 
@@ -229,6 +229,71 @@ export const folders = query({
   },
 });
 
+/** One folder's page: its quizzes and resources, and the students who can see it. */
+export const folderDetail = query({
+  args: { token: v.string(), slug: v.string() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const f = await folderBySlug(ctx, args.slug);
+    if (!f) return null;
+    const cards = (await ctx.db.query("quizCards").withIndex("by_folder", (q) => q.eq("folder", f.slug)).collect()).sort(
+      (a, b) => a.order - b.order || viCompare(a.title, b.title),
+    );
+    const resources = (await ctx.db.query("resources").withIndex("by_folder", (q) => q.eq("folder", f.slug)).collect()).sort((a, b) => a.order - b.order);
+    const students = (await ctx.db.query("students").collect())
+      .filter((s) => s.folders.includes(f.slug) || s.folders.includes("*"))
+      .sort((a, b) => viCompare(a.className, b.className) || viCompare(a.name, b.name));
+    // Submissions per quiz, and how many of this folder's quizzes each student has done.
+    const done = new Map<Id<"students">, number>();
+    const quizzes = [];
+    for (const c of cards) {
+      const scores = await ctx.db.query("scores").withIndex("by_quiz", (q) => q.eq("quizId", c.quizId)).collect();
+      for (const s of scores) done.set(s.studentId, (done.get(s.studentId) ?? 0) + 1);
+      quizzes.push({
+        _id: c.quizId,
+        slug: c.slug,
+        title: c.title,
+        subtitle: c.subtitle,
+        published: c.published,
+        questionCount: c.questionCount,
+        ielts: c.ielts ?? null,
+        hasEssay: c.hasEssay,
+        hasSpeak: c.hasSpeak,
+        exam: c.exam ?? null,
+        studentCount: scores.length,
+        attemptCount: scores.reduce((n, s) => n + s.count, 0),
+      });
+    }
+    return {
+      folder: { _id: f._id, slug: f.slug, name: f.name, badge: f.badge, detail: f.detail },
+      quizzes,
+      resources: resources.map((r) => ({ _id: r._id, title: r.title, kind: r.kind, audio: r.file?.media === "audio", hidden: !!r.hidden })),
+      students: students.map((s) => ({
+        _id: s._id,
+        name: s.name,
+        className: s.className,
+        code: s.code,
+        parentCode: s.parentCode ?? "",
+        active: s.active,
+        allFolders: s.folders.includes("*"),
+        done: done.get(s._id) ?? 0,
+      })),
+    };
+  },
+});
+
+/** Show a quiz to students (or hide it again) straight from the folder page. */
+export const setQuizPublished = mutation({
+  args: { token: v.string(), id: v.id("quizzes"), published: v.boolean() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const q = await ctx.db.get(args.id);
+    if (!q) fail("Không tìm thấy bài.");
+    await ctx.db.patch(q._id, { published: args.published, updatedAt: Date.now() });
+    await syncCard(ctx, q._id);
+  },
+});
+
 export const saveFolder = mutation({
   args: {
     token: v.string(),
@@ -367,44 +432,93 @@ export const saveStudent = mutation({
   },
 });
 
+const bulkRow = v.object({ name: v.string(), className: v.string(), code: v.optional(v.string()), style: v.optional(v.literal("lastTwo")) });
+type BulkRow = { name: string; className: string; code?: string; style?: "lastTwo" };
+type NewStudent = { name: string; className: string; code: string; parentCode: string };
+
+/** Creates one student from a class-list row, or says why the row was skipped. */
+async function createFromRow(ctx: MutationCtx, r: BulkRow, folders: string[]): Promise<{ created: NewStudent & { id: Id<"students"> } } | { reason: string }> {
+  const name = r.name.trim().replace(/\s+/g, " ");
+  const className = r.className.trim();
+  if (!name || !className) return { reason: "Thiếu tên hoặc lớp" };
+  let code = normCode(r.code);
+  if (code) {
+    if (!/^[a-z0-9._-]{4,40}$/.test(code)) return { reason: `Mã "${code}" không hợp lệ` };
+    const other = await studentByCode(ctx, code);
+    if (other) return { reason: `Mã "${code}" đã dùng cho ${other.name}` };
+  } else code = await generateStudentCode(ctx, name, r.style ?? "first");
+  const parentCode = parentCodeFor(code);
+  const id = await ctx.db.insert("students", { name, className, code, parentCode, folders, active: true, note: "", createdAt: Date.now() });
+  return { created: { id, name, className, code, parentCode } };
+}
+
 export const bulkCreateStudents = mutation({
   args: {
     token: v.string(),
     // `code` is optional: when given (e.g. name + phone digits) it must be free.
     // `style: "lastTwo"` makes random codes from the last two words of the name (baoan + 4 digits).
-    rows: v.array(v.object({ name: v.string(), className: v.string(), code: v.optional(v.string()), style: v.optional(v.literal("lastTwo")) })),
+    rows: v.array(bulkRow),
     folders: v.array(v.string()),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx, args.token);
     if (args.rows.length > 300) fail("Mỗi lần thêm tối đa 300 học sinh.");
     const folders = await assertFolders(ctx, args.folders);
-    const created: { name: string; className: string; code: string; parentCode: string }[] = [];
+    const created: NewStudent[] = [];
     const skipped: { name: string; className: string; reason: string }[] = [];
     for (const r of args.rows) {
-      const name = r.name.trim().replace(/\s+/g, " ");
-      const className = r.className.trim();
-      if (!name || !className) {
-        skipped.push({ name, className, reason: "Thiếu tên hoặc lớp" });
-        continue;
-      }
-      let code = normCode(r.code);
-      if (code) {
-        if (!/^[a-z0-9._-]{4,40}$/.test(code)) {
-          skipped.push({ name, className, reason: `Mã "${code}" không hợp lệ` });
-          continue;
-        }
-        const other = await studentByCode(ctx, code);
-        if (other) {
-          skipped.push({ name, className, reason: `Mã "${code}" đã dùng cho ${other.name}` });
-          continue;
-        }
-      } else code = await generateStudentCode(ctx, name, r.style ?? "first");
-      const parentCode = parentCodeFor(code);
-      await ctx.db.insert("students", { name, className, code, parentCode, folders, active: true, note: "", createdAt: Date.now() });
-      created.push({ name, className, code, parentCode });
+      const res = await createFromRow(ctx, r, folders);
+      if ("reason" in res) skipped.push({ name: r.name.trim(), className: r.className.trim(), reason: res.reason });
+      else created.push({ name: res.created.name, className: res.created.className, code: res.created.code, parentCode: res.created.parentCode });
     }
     return { created, skipped };
+  },
+});
+
+/**
+ * Class list → one folder. A row whose full name matches a student who already has an account just
+ * opens the folder for that student (code and class unchanged); other names get a new account.
+ */
+export const importToFolder = mutation({
+  args: { token: v.string(), folder: v.string(), rows: v.array(bulkRow) },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    if (args.rows.length > 300) fail("Mỗi lần thêm tối đa 300 học sinh.");
+    if (!(await folderBySlug(ctx, args.folder))) fail("Không tìm thấy thư mục.");
+    const byName = new Map<string, Doc<"students">[]>();
+    for (const s of await ctx.db.query("students").collect()) byName.set(nameKey(s.name), [...(byName.get(nameKey(s.name)) ?? []), s]);
+    const created: NewStudent[] = [];
+    const added: NewStudent[] = [];
+    const already: NewStudent[] = [];
+    const skipped: { name: string; className: string; reason: string }[] = [];
+    const row = (s: Doc<"students">) => ({ name: s.name, className: s.className, code: s.code, parentCode: s.parentCode ?? parentCodeFor(s.code) });
+    for (const r of args.rows) {
+      const key = nameKey(r.name);
+      const same = byName.get(key) ?? [];
+      if (same.length > 1) {
+        skipped.push({ name: r.name.trim(), className: r.className.trim(), reason: `Có ${same.length} học sinh cùng tên, hãy thêm tay em đúng` });
+        continue;
+      }
+      if (same.length === 1) {
+        const s = same[0];
+        if (s.folders.includes(args.folder) || s.folders.includes("*")) already.push(row(s));
+        else {
+          await ctx.db.patch(s._id, { folders: [...s.folders, args.folder] });
+          s.folders = [...s.folders, args.folder];
+          added.push(row(s));
+        }
+        continue;
+      }
+      const res = await createFromRow(ctx, r, [args.folder]);
+      if ("reason" in res) {
+        skipped.push({ name: r.name.trim(), className: r.className.trim(), reason: res.reason });
+        continue;
+      }
+      created.push({ name: res.created.name, className: res.created.className, code: res.created.code, parentCode: res.created.parentCode });
+      const doc = await ctx.db.get(res.created.id);
+      if (doc) byName.set(key, [doc]);
+    }
+    return { created, added, already, skipped };
   },
 });
 

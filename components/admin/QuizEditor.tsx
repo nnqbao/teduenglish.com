@@ -220,8 +220,11 @@ export default function QuizEditor({ id }: { id: string }) {
   useEffect(() => {
     if (draft) return;
     if (isNew && folders) {
+      // "Soạn bài mới" on a folder's page passes that folder as ?thu-muc=…
+      const preset = new URLSearchParams(window.location.search).get("thu-muc");
+      const folder = folders.find((f) => f.slug === preset)?.slug ?? folders[0]?.slug ?? "";
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDraft({ slug: "", folder: folders[0]?.slug ?? "", title: "", subtitle: "", minutes: 10, code: "", featured: false, ielts: "", published: true, timer: "count", accent: "uk", speakPrep: 15, speakMode: "both", examOn: false, opensAt: "", closesAt: "", focusGuard: null, term: "", sections: [blankS()] });
+      setDraft({ slug: "", folder, title: "", subtitle: "", minutes: 10, code: "", featured: false, ielts: "", published: true, timer: "count", accent: "uk", speakPrep: 15, speakMode: "both", examOn: false, opensAt: "", closesAt: "", focusGuard: null, term: "", sections: [blankS()] });
     } else if (doc) setDraft(fromDoc(doc));
   }, [doc, folders, isNew, draft]);
 

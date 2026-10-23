@@ -192,3 +192,7 @@ button.check { background: var(--surface); }
 .exam-box { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: 14px; border: 1px dashed var(--line-strong); }
 .exam-box.on { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
 .exam-controls { display: flex; flex-direction: column; gap: 8px; }
+
+/* Folder list: the whole row opens the folder's page. */
+tr.row-link { cursor: pointer; }
+tr.row-link:hover td { background: var(--surface-2); }
