@@ -26,7 +26,7 @@ import {
 import { accentValidator, essayReviewValidator, ieltsValidator, resourceKindValidator, sectionValidator, termValidator, timerValidator, speakModeValidator } from "./schema";
 import { cardByQuiz, refreshScore, syncCard } from "./summary";
 import { phaseAt, scheduleExam } from "./exam";
-import { type ExamInfo, MAX_AUDIO_BYTES, MAX_PDF_BYTES, SPEAKING_REVIEW_KEY, formatBytes, hasSpeak, isCorrect, nameKey, normCode, parentCodeFor, slugify, validateSections, wordCount, writingBand, viCompare } from "./model";
+import { type ExamInfo, MAX_AUDIO_BYTES, MAX_PDF_BYTES, SPEAKING_REVIEW_KEY, clozeContext, formatBytes, hasSpeak, isCorrect, nameKey, normCode, parentCodeFor, slugify, validateSections, wordCount, writingBand, viCompare } from "./model";
 
 const tokenArg = { token: v.string() };
 
@@ -807,9 +807,11 @@ export const saveQuiz = mutation({
       ...(s.listen?.trim() ? { listen: s.listen.trim() } : {}),
       ...(s.audio ? { audio: { storageId: s.audio.storageId, name: s.audio.name.slice(0, 200) } } : {}),
       ...(s.passage?.trim() ? { passage: s.passage.trim() } : {}),
-      questions: s.questions.map((q) => {
+      ...(s.cloze ? { cloze: true } : {}),
+      questions: s.questions.map((q, qi) => {
         const base = {
-          q: q.q.trim(),
+          // A cloze blank's question text is its sentence, shown in results and exports.
+          q: q.q.trim() || (s.cloze ? clozeContext(s.passage?.trim() ?? "", qi) : ""),
           ...(q.tag?.trim() ? { tag: q.tag.trim() } : {}),
           ...(q.explain?.trim() ? { explain: q.explain.trim() } : {}),
           ...(q.image ? { image: q.image } : {}),

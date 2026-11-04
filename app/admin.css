@@ -196,3 +196,6 @@ button.check { background: var(--surface); }
 /* Folder list: the whole row opens the folder's page. */
 tr.row-link { cursor: pointer; }
 tr.row-link:hover td { background: var(--surface-2); }
+
+/* Cloze blank in the editor: the sentence it sits in. */
+.cloze-context { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--surface-2); font-style: italic; }

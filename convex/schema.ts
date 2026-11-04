@@ -31,6 +31,8 @@ export const sectionValidator = v.object({
   // Recorded audio (MP3) for a listening part; played instead of the computer voice.
   audio: v.optional(v.object({ storageId: v.id("_storage"), name: v.string() })),
   passage: v.optional(v.string()),
+  // Guided cloze: the passage's "___" blanks are answered in place by the section's multiple-choice questions, in order.
+  cloze: v.optional(v.boolean()),
   questions: v.array(questionValidator),
 });
 

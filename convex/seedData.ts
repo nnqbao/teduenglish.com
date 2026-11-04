@@ -871,6 +871,130 @@ export const seedData = {
           ]
         }
       ]
+    },
+    {
+      "slug": "gs9-cloze-hoi-an",
+      "folder": "gs9",
+      "title": "Guided Cloze · Life in Hoi An",
+      "subtitle": "Điền từ vào đoạn văn · 8 chỗ trống A/B/C/D",
+      "minutes": 10,
+      "code": "",
+      "featured": false,
+      "published": true,
+      "order": 7,
+      "sections": [
+        {
+          "title": "Read the passage and choose the word that best fits each blank",
+          "passage": "Life in Hoi An\n\nHoi An is a small ancient town in central Viet Nam. It is famous (1) ___ its yellow walls, wooden houses and colourful lanterns. Although the town is small, it attracts millions of visitors (2) ___ year. Most tourists come to see the Japanese Covered Bridge, (3) ___ was built more than four hundred years ago. Local people are very (4) ___ and always ready to help visitors. In the evening, the old streets are closed to motorbikes, (5) ___ people can walk around safely.\n\nMany families in Hoi An have (6) ___ traditional crafts such as lantern making and tailoring for generations. However, the town is facing some serious problems. Rising sea levels and heavy floods (7) ___ the old buildings almost every rainy season. If we want Hoi An to stay beautiful, we must (8) ___ its heritage for future generations.",
+          "cloze": true,
+          "questions": [
+            {
+              "type": "mcq",
+              "tag": "Preposition",
+              "q": "It is famous ___ its yellow walls, wooden houses and colourful lanterns.",
+              "options": [
+                "of",
+                "for",
+                "with",
+                "at"
+              ],
+              "answer": 1,
+              "explain": "be famous for: nổi tiếng về."
+            },
+            {
+              "type": "mcq",
+              "tag": "Quantifier",
+              "q": "Although the town is small, it attracts millions of visitors ___ year.",
+              "options": [
+                "every",
+                "all",
+                "many",
+                "most"
+              ],
+              "answer": 0,
+              "explain": "every + danh từ số ít: every year = mỗi năm."
+            },
+            {
+              "type": "mcq",
+              "tag": "Relative pronoun",
+              "q": "Most tourists come to see the Japanese Covered Bridge, ___ was built more than four hundred years ago.",
+              "options": [
+                "who",
+                "where",
+                "which",
+                "what"
+              ],
+              "answer": 2,
+              "explain": "which thay cho vật (the Japanese Covered Bridge) trong mệnh đề có dấu phẩy; không dùng that sau dấu phẩy."
+            },
+            {
+              "type": "mcq",
+              "tag": "Word form",
+              "q": "Local people are very ___ and always ready to help visitors.",
+              "options": [
+                "friend",
+                "friendly",
+                "friendship",
+                "friendliness"
+              ],
+              "answer": 1,
+              "explain": "Sau be + very cần tính từ: friendly (thân thiện)."
+            },
+            {
+              "type": "mcq",
+              "tag": "Connector",
+              "q": "In the evening, the old streets are closed to motorbikes, ___ people can walk around safely.",
+              "options": [
+                "because",
+                "but",
+                "so",
+                "although"
+              ],
+              "answer": 2,
+              "explain": "so (vì vậy) chỉ kết quả: đường cấm xe máy nên mọi người đi bộ an toàn."
+            },
+            {
+              "type": "mcq",
+              "tag": "Tense",
+              "q": "Many families in Hoi An have ___ traditional crafts such as lantern making and tailoring for generations.",
+              "options": [
+                "kept",
+                "keep",
+                "keeping",
+                "to keep"
+              ],
+              "answer": 0,
+              "explain": "have + V3 (hiện tại hoàn thành) đi với for generations: have kept."
+            },
+            {
+              "type": "mcq",
+              "tag": "Subject–verb agreement",
+              "q": "Rising sea levels and heavy floods ___ the old buildings almost every rainy season.",
+              "options": [
+                "damage",
+                "damages",
+                "damaging",
+                "damaged"
+              ],
+              "answer": 0,
+              "explain": "Chủ ngữ số nhiều (sea levels and floods) + thói quen lặp lại (every rainy season) → hiện tại đơn, động từ nguyên mẫu: damage."
+            },
+            {
+              "type": "mcq",
+              "tag": "Vocabulary",
+              "q": "If we want Hoi An to stay beautiful, we must ___ its heritage for future generations.",
+              "options": [
+                "destroy",
+                "protect",
+                "pollute",
+                "ignore"
+              ],
+              "answer": 1,
+              "explain": "protect its heritage: bảo vệ di sản; các từ còn lại trái nghĩa với ý muốn giữ Hoi An đẹp."
+            }
+          ]
+        }
+      ]
     }
   ]
 };

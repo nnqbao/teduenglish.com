@@ -19,6 +19,8 @@ export type Section = {
   /** Recorded MP3 for a listening part, kept in Convex storage. */
   audio?: QuestionImage;
   passage?: string;
+  /** Guided cloze: each "___" in the passage is a blank, answered by the multiple-choice question with the same position. */
+  cloze?: boolean;
   questions: Question[];
 };
 export type IeltsKind = "listening" | "reading";
@@ -124,6 +126,34 @@ export function parseDialogue(text: string): { speaker: string | null; text: str
       const m = line.match(/^([A-Za-z][\w .'-]{0,24}):\s+(.+)$/);
       return m ? { speaker: m[1], text: m[2] } : { speaker: null, text: line };
     });
+}
+
+/** A cloze blank: 3+ underscores, optionally numbered as in printed tests ("(26) ____"); the site numbers blanks itself. */
+const CLOZE_BLANK = /(?:\(\s*\d{1,3}\s*\)\s*)?_{3,}/;
+
+/** The passage split at its blanks: always one more piece than there are blanks. */
+export function clozeParts(passage: string): string[] {
+  return passage.split(CLOZE_BLANK);
+}
+
+export function clozeBlankCount(passage: string): number {
+  return clozeParts(passage).length - 1;
+}
+
+/**
+ * The sentence around blank `i` with that blank as "___" and any others as "…",
+ * used as the question text in results, e.g. "It is a ___ community of just over 1,500 residents."
+ */
+export function clozeContext(passage: string, i: number): string {
+  const parts = clozeParts(passage);
+  if (i < 0 || i >= parts.length - 1) return "";
+  const before = parts.slice(0, i + 1).join("…");
+  const after = parts.slice(i + 1).join("…");
+  const STOPS = ["\n", ". ", "! ", "? "];
+  const start = Math.max(0, ...STOPS.map((p) => (before.lastIndexOf(p) >= 0 ? before.lastIndexOf(p) + p.length : 0)));
+  const ends = STOPS.map((p) => after.indexOf(p)).filter((n) => n >= 0);
+  const end = ends.length ? Math.min(...ends) + 1 : after.length;
+  return `${before.slice(start)}___${after.slice(0, end)}`.replace(/\s+/g, " ").trim();
 }
 
 export function questionCount(sections: { questions: unknown[] }[]): number {
@@ -279,9 +309,16 @@ export function validateSections(sections: Section[]): string[] {
   let num = 0;
   sections.forEach((sec, si) => {
     if (!sec.questions.length) errors.push(`Phần ${si + 1} chưa có câu hỏi.`);
+    if (sec.cloze) {
+      const blanks = clozeBlankCount(sec.passage ?? "");
+      if (!blanks) errors.push(`Phần ${si + 1}: đoạn văn chưa có chỗ trống nào. Gõ ___ (3 dấu gạch dưới) ở mỗi chỗ cần điền.`);
+      else if (blanks !== sec.questions.length)
+        errors.push(`Phần ${si + 1}: đoạn văn có ${blanks} chỗ trống nhưng phần này có ${sec.questions.length} câu. Mỗi chỗ trống cần đúng một câu.`);
+      if (sec.questions.some((q) => q.type !== "mcq")) errors.push(`Phần ${si + 1}: dạng điền từ vào đoạn văn chỉ dùng câu trắc nghiệm.`);
+    }
     sec.questions.forEach((q) => {
       num++;
-      if (!q.q.trim()) errors.push(`Câu ${num}: chưa nhập nội dung câu hỏi.`);
+      if (!q.q.trim() && !sec.cloze) errors.push(`Câu ${num}: chưa nhập nội dung câu hỏi.`);
       if (q.type === "mcq") {
         const opts = q.options.filter((o) => o.trim());
         if (opts.length < 2) errors.push(`Câu ${num}: cần ít nhất 2 lựa chọn.`);

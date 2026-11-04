@@ -7,7 +7,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Answers } from "@/convex/model";
-import { RECORDING_KEEP_DAYS, SPEAKING_CRITERIA, WRITING_CRITERIA, writingBand, normAnswer, parseDialogue, wordCount } from "@/convex/model";
+import { RECORDING_KEEP_DAYS, SPEAKING_CRITERIA, WRITING_CRITERIA, clozeParts, writingBand, normAnswer, parseDialogue, wordCount } from "@/convex/model";
+import { plainText } from "@/lib/rich";
 import { Rich, copyText, errMsg, sdel, sget, shuffle, signalReady, sset, stamp } from "@/lib/ui";
 import { GateLogin, GateNoAccess, Loading, Missing, Swoosh, examTime } from "./parts";
 import { useSite } from "./SiteShell";
@@ -707,6 +708,7 @@ function QuizRunner({
       )}
       {att.sections.map((sa) => {
         const sec = sections[sa.si];
+        const first = num + 1;
         const cards = sa.order.map((qi) => {
           num++;
           const key = `${sa.si}-${qi}`;
@@ -729,6 +731,23 @@ function QuizRunner({
             <small>{sec.questions.length} câu</small>
           </h2>
         );
+        if (sec.cloze && sec.passage) {
+          return (
+            <section className="q-section" key={sa.si}>
+              {title}
+              <ClozePassage
+                si={sa.si}
+                passage={sec.passage}
+                questions={sec.questions}
+                first={first}
+                opts={sa.opts}
+                answers={att.answers}
+                review={att.submitted ? att.outcome?.review : undefined}
+                onAnswer={setAnswer}
+              />
+            </section>
+          );
+        }
         if (sec.passage) {
           const lines = sec.passage.split("\n");
           const body = lines.slice(1).join("\n").replace(/^\n+/, "");
@@ -958,6 +977,117 @@ function SectionAudio({ url, onPlay }: { url: string; onPlay: () => void }) {
 }
 
 type Review = Submitted["review"][string];
+
+/** A short first line without end punctuation is the passage's title, as in reading passages. */
+function splitTitle(text: string): [string, string] {
+  const nl = text.indexOf("\n");
+  const head = nl > 0 ? text.slice(0, nl).trim() : "";
+  return head && head.length <= 80 && !/[.!?,;:]$/.test(head) ? [head, text.slice(nl + 1).replace(/^\n+/, "")] : ["", text];
+}
+
+/** Guided cloze: the passage with a dropdown at each blank; after submitting, the answers are listed under it. */
+function ClozePassage({
+  si,
+  passage,
+  questions,
+  first,
+  opts,
+  answers,
+  review,
+  onAnswer,
+}: {
+  si: number;
+  passage: string;
+  questions: PubQuestion[];
+  first: number;
+  opts: Record<number, number[]>;
+  answers: Answers;
+  review?: Record<string, Review>;
+  onAnswer: (key: string, v: string | number) => void;
+}) {
+  const parts = clozeParts(passage);
+  const [title, lead] = splitTitle(parts[0]);
+  const mcq = (qi: number) => {
+    const q = questions[qi];
+    return q?.type === "mcq" ? q : null;
+  };
+  return (
+    <>
+      <article className="passage cloze" aria-label="Đoạn văn">
+        {title && <p className="p-title">{title}</p>}
+        {lead}
+        {parts.slice(1).map((text, qi) => {
+          const q = mcq(qi);
+          const key = `${si}-${qi}`;
+          const v = answers[key];
+          const r = review?.[key];
+          const state = r ? (r.ok ? " ok" : " no") : typeof v === "number" ? " sel" : "";
+          return (
+            <span key={qi}>
+              <span className={`cloze-blank${state}`} id={`q-${key}`}>
+                <b className="cloze-num">({first + qi})</b>
+                {q && (
+                  <select
+                    className="cloze-select"
+                    id={`ans-${key}`}
+                    value={typeof v === "number" ? v : ""}
+                    disabled={!!r}
+                    aria-label={`Chỗ trống ${first + qi}`}
+                    onChange={(e) => onAnswer(key, Number(e.target.value))}
+                  >
+                    <option value="" disabled>
+                      Chọn…
+                    </option>
+                    {(opts[qi] ?? q.options.map((_, i) => i)).map((oi, pos) => (
+                      <option key={oi} value={oi}>
+                        {String.fromCharCode(65 + pos)}. {plainText(q.options[oi])}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </span>
+              {text}
+            </span>
+          );
+        })}
+      </article>
+      {review && (
+        <ol className="cloze-review" start={first}>
+          {questions.map((_, qi) => {
+            const q = mcq(qi);
+            const key = `${si}-${qi}`;
+            const r = review[key];
+            if (!q || !r) return null;
+            const given = answers[key];
+            return (
+              <li key={key} className={r.ok ? "ok" : r.answered ? "no" : ""}>
+                {r.answer == null ? (
+                  <span className="muted">🔒 Em chưa chọn nên đáp án được ẩn.</span>
+                ) : (
+                  <>
+                    {r.ok ? <span className="state-ok">Đúng</span> : <span className="state-no">Chưa đúng</span>}{" "}
+                    {!r.ok && typeof given === "number" && (
+                      <>
+                        Em chọn: <b><Rich text={q.options[given] ?? ""} /></b> ·{" "}
+                      </>
+                    )}
+                    Đáp án: <b><Rich text={q.options[r.answer as number] ?? ""} /></b>
+                    {r.explain ? (
+                      <>
+                        {" · "}
+                        <Rich text={r.explain} />
+                      </>
+                    ) : null}
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </>
+  );
+}
 
 function QuestionCard({
   k,

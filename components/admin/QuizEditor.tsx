@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
-import { MAX_AUDIO_BYTES, formatBytes, slugify, validateSections, type Section } from "@/convex/model";
+import { MAX_AUDIO_BYTES, clozeBlankCount, clozeContext, formatBytes, slugify, validateSections, type Section } from "@/convex/model";
 import { parseLoose } from "@/lib/loose-json";
 import { errMsg } from "@/lib/ui";
 import { Modal, useAdmin } from "./AdminShell";
@@ -32,7 +32,7 @@ type EQ = {
   image: EImage | null;
 };
 type QuizSections = Doc<"quizzes">["sections"];
-type ES = { uid: string; title: string; kind: "plain" | "listen" | "passage"; media: string; audio: EImage | null; questions: EQ[] };
+type ES = { uid: string; title: string; kind: "plain" | "listen" | "passage" | "cloze"; media: string; audio: EImage | null; questions: EQ[] };
 type Draft = {
   slug: string;
   folder: string;
@@ -126,11 +126,15 @@ function ieltsWritingTemplate(): ES[] {
 }
 const blankS = (): ES => ({ uid: uid(), title: "", kind: "plain", media: "", audio: null, questions: [blankQ("mcq")] });
 
+/** Cloze: one multiple-choice question per blank, so typing "___" in the passage adds its question (never removes any). */
+const growTo = (questions: EQ[], blanks: number): EQ[] =>
+  questions.length >= blanks ? questions : [...questions, ...Array.from({ length: blanks - questions.length }, () => blankQ("mcq"))];
+
 function fromSections(sections: Section[], imageUrls: Record<string, string> = {}): ES[] {
   return sections.map((s) => ({
     uid: uid(),
     title: s.title,
-    kind: s.listen || s.audio ? "listen" : s.passage ? "passage" : "plain",
+    kind: s.listen || s.audio ? "listen" : s.cloze ? "cloze" : s.passage ? "passage" : "plain",
     media: s.listen ?? s.passage ?? "",
     audio: s.audio ? { storageId: s.audio.storageId as Id<"_storage">, name: s.audio.name, url: imageUrls[s.audio.storageId] ?? "" } : null,
     questions: s.questions.map((q): EQ => {
@@ -154,10 +158,11 @@ function toSections(es: ES[]): QuizSections {
     title: s.title,
     ...(s.kind === "listen" ? { listen: s.media } : {}),
     ...(s.kind === "listen" && s.audio ? { audio: { storageId: s.audio.storageId, name: s.audio.name } } : {}),
-    ...(s.kind === "passage" ? { passage: s.media } : {}),
-    questions: s.questions.map((q) => {
+    ...(s.kind === "passage" || s.kind === "cloze" ? { passage: s.media } : {}),
+    ...(s.kind === "cloze" ? { cloze: true } : {}),
+    questions: s.questions.map((q, qi) => {
       const base = {
-        q: q.q,
+        q: s.kind === "cloze" ? clozeContext(s.media, qi) : q.q,
         ...(q.tag.trim() ? { tag: q.tag } : {}),
         ...(q.explain.trim() ? { explain: q.explain } : {}),
         ...(q.image ? { image: { storageId: q.image.storageId, name: q.image.name } } : {}),
@@ -512,10 +517,19 @@ export default function QuizEditor({ id }: { id: string }) {
             </div>
             <div className="field">
               <label htmlFor={`s-kind-${s.uid}`}>Dạng phần</label>
-              <select className="select compact" id={`s-kind-${s.uid}`} value={s.kind} onChange={(e) => setSection(si, { kind: e.target.value as ES["kind"] })}>
+              <select
+                className="select compact"
+                id={`s-kind-${s.uid}`}
+                value={s.kind}
+                onChange={(e) => {
+                  const kind = e.target.value as ES["kind"];
+                  setSection(si, kind === "cloze" ? { kind, questions: growTo(s.questions, clozeBlankCount(s.media)) } : { kind });
+                }}
+              >
                 <option value="plain">Câu hỏi thường</option>
                 <option value="listen">Nghe (file MP3 hoặc máy đọc lời thoại)</option>
                 <option value="passage">Đọc hiểu (có bài đọc)</option>
+                <option value="cloze">Điền từ vào đoạn văn (Guided Cloze)</option>
               </select>
             </div>
           </div>
@@ -530,81 +544,106 @@ export default function QuizEditor({ id }: { id: string }) {
           {s.kind !== "plain" && (
             <div className="field">
               <label htmlFor={`s-media-${s.uid}`}>
-                {s.kind === "listen" ? (s.audio ? "Lời thoại (không bắt buộc)" : "Lời thoại") : "Bài đọc"}{" "}
+                {s.kind === "listen" ? (s.audio ? "Lời thoại (không bắt buộc)" : "Lời thoại") : s.kind === "cloze" ? "Đoạn văn" : "Bài đọc"}{" "}
                 <span className="hint">
                   {s.kind === "listen"
                     ? s.audio
                       ? "— dán lời thoại của file MP3 nếu có; học sinh xem được sau khi nộp bài."
                       : "— mỗi dòng một câu, dạng “Tên: lời nói”; mỗi người một giọng. Học sinh xem được lời thoại sau khi nộp."
-                    : "— dòng đầu là tiêu đề, để trống một dòng rồi viết các đoạn."}
+                    : s.kind === "cloze"
+                      ? "— dòng đầu là tiêu đề (tuỳ chọn). Gõ ___ (3 dấu gạch dưới) ở mỗi chỗ trống, ví dụ “It is a (26) ___ community”; web tự đánh số và tạo một câu A/B/C/D cho mỗi chỗ."
+                      : "— dòng đầu là tiêu đề, để trống một dòng rồi viết các đoạn."}
                 </span>
               </label>
-              <textarea className="textarea prose" id={`s-media-${s.uid}`} rows={8} value={s.media} onChange={(e) => setSection(si, { media: e.target.value })} />
+              <textarea
+                className="textarea prose"
+                id={`s-media-${s.uid}`}
+                rows={8}
+                value={s.media}
+                onChange={(e) => {
+                  const media = e.target.value;
+                  setSection(si, s.kind === "cloze" ? { media, questions: growTo(s.questions, clozeBlankCount(media)) } : { media });
+                }}
+              />
             </div>
           )}
+          {s.kind === "cloze" && <ClozeCount blanks={clozeBlankCount(s.media)} questions={s.questions} onTrim={(questions) => setSection(si, { questions })} />}
 
           {s.questions.map((q, qi) => (
             <div className="qe" key={q.uid}>
               <div className="qe-head">
-                <b>Câu {qi + 1}</b>
+                <b>{s.kind === "cloze" ? `Chỗ trống ${qi + 1}` : `Câu ${qi + 1}`}</b>
                 <div className="row-actions">
-                  <select
-                    className="select compact"
-                    style={{ width: "auto" }}
-                    value={q.type}
-                    aria-label="Dạng câu hỏi"
-                    onChange={(e) => {
-                      const type = e.target.value as EQ["type"];
-                      if (type === "fill" && q.type === "mcq" && !q.answerText && q.options[q.answer]) setQuestion(si, qi, { type, answerText: q.options[q.answer] });
-                      else setQuestion(si, qi, { type });
-                    }}
-                  >
-                    <option value="mcq">Trắc nghiệm</option>
-                    <option value="fill">Điền từ / viết lại câu</option>
-                    <option value="essay">Bài viết (giáo viên chấm)</option>
-                    <option value="speak">Nói (thu âm, giáo viên chấm)</option>
-                  </select>
+                  {s.kind !== "cloze" && (
+                    <select
+                      className="select compact"
+                      style={{ width: "auto" }}
+                      value={q.type}
+                      aria-label="Dạng câu hỏi"
+                      onChange={(e) => {
+                        const type = e.target.value as EQ["type"];
+                        if (type === "fill" && q.type === "mcq" && !q.answerText && q.options[q.answer]) setQuestion(si, qi, { type, answerText: q.options[q.answer] });
+                        else setQuestion(si, qi, { type });
+                      }}
+                    >
+                      <option value="mcq">Trắc nghiệm</option>
+                      <option value="fill">Điền từ / viết lại câu</option>
+                      <option value="essay">Bài viết (giáo viên chấm)</option>
+                      <option value="speak">Nói (thu âm, giáo viên chấm)</option>
+                    </select>
+                  )}
                   <button className="link-btn" type="button" disabled={qi === 0} onClick={() => setSection(si, { questions: move(s.questions, qi, -1) })} aria-label="Lên">
                     ↑
                   </button>
                   <button className="link-btn" type="button" disabled={qi === s.questions.length - 1} onClick={() => setSection(si, { questions: move(s.questions, qi, 1) })} aria-label="Xuống">
                     ↓
                   </button>
-                  <button
-                    className="link-btn"
-                    type="button"
-                    onClick={() => setSection(si, { questions: [...s.questions.slice(0, qi + 1), { ...q, uid: uid(), options: [...q.options] }, ...s.questions.slice(qi + 1)] })}
-                  >
-                    Nhân bản
-                  </button>
-                  <button className="link-btn danger" type="button" disabled={s.questions.length === 1} onClick={() => setSection(si, { questions: s.questions.filter((_, i) => i !== qi) })}>
-                    Xóa
-                  </button>
+                  {/* Cloze questions follow the blanks: add or remove a ___ in the passage instead. */}
+                  {s.kind !== "cloze" && (
+                    <>
+                      <button
+                        className="link-btn"
+                        type="button"
+                        onClick={() => setSection(si, { questions: [...s.questions.slice(0, qi + 1), { ...q, uid: uid(), options: [...q.options] }, ...s.questions.slice(qi + 1)] })}
+                      >
+                        Nhân bản
+                      </button>
+                      <button className="link-btn danger" type="button" disabled={s.questions.length === 1} onClick={() => setSection(si, { questions: s.questions.filter((_, i) => i !== qi) })}>
+                        Xóa
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
-              <div className="row-2" style={{ gridTemplateColumns: "minmax(0,3fr) minmax(0,1fr)" }}>
-                <div className="field">
-                  <span className="label-like">
-                    Câu hỏi <span className="hint">— bôi đen chữ rồi bấm B (in đậm) hoặc U (gạch chân)</span>
-                  </span>
-                  <RichInput
-                    id={`q-${q.uid}`}
-                    label={`Câu hỏi ${qi + 1}`}
-                    rows={q.type === "essay" || q.type === "speak" ? 4 : 2}
-                    value={q.q}
-                    onChange={(v) => setQuestion(si, qi, { q: v })}
-                    placeholder={q.type === "speak" ? "Câu hỏi máy sẽ đọc to, ví dụ: Where is your hometown?" : "Ví dụ: She ___ to school every day."}
-                    blank={q.type === "mcq" || q.type === "fill"}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor={`tag-${q.uid}`}>
-                    Nhãn <span className="hint">(tuỳ chọn)</span>
-                  </label>
-                  <input className="input compact" id={`tag-${q.uid}`} value={q.tag} onChange={(e) => setQuestion(si, qi, { tag: e.target.value })} placeholder="Unit 1" />
-                </div>
-              </div>
-              <ImageField image={q.image} onChange={(image) => setQuestion(si, qi, { image })} />
+              {s.kind === "cloze" ? (
+                <p className="small cloze-context">{clozeContext(s.media, qi) || <span className="muted">Chưa có chỗ trống này trong đoạn văn.</span>}</p>
+              ) : (
+                <>
+                  <div className="row-2" style={{ gridTemplateColumns: "minmax(0,3fr) minmax(0,1fr)" }}>
+                    <div className="field">
+                      <span className="label-like">
+                        Câu hỏi <span className="hint">— bôi đen chữ rồi bấm B (in đậm) hoặc U (gạch chân)</span>
+                      </span>
+                      <RichInput
+                        id={`q-${q.uid}`}
+                        label={`Câu hỏi ${qi + 1}`}
+                        rows={q.type === "essay" || q.type === "speak" ? 4 : 2}
+                        value={q.q}
+                        onChange={(v) => setQuestion(si, qi, { q: v })}
+                        placeholder={q.type === "speak" ? "Câu hỏi máy sẽ đọc to, ví dụ: Where is your hometown?" : "Ví dụ: She ___ to school every day."}
+                        blank={q.type === "mcq" || q.type === "fill"}
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor={`tag-${q.uid}`}>
+                        Nhãn <span className="hint">(tuỳ chọn)</span>
+                      </label>
+                      <input className="input compact" id={`tag-${q.uid}`} value={q.tag} onChange={(e) => setQuestion(si, qi, { tag: e.target.value })} placeholder="Unit 1" />
+                    </div>
+                  </div>
+                  <ImageField image={q.image} onChange={(image) => setQuestion(si, qi, { image })} />
+                </>
+              )}
               {q.type === "speak" ? (
                 <div className="row-2">
                   <div className="field">
@@ -718,17 +757,19 @@ export default function QuizEditor({ id }: { id: string }) {
               )}
             </div>
           ))}
-          <div className="row-actions">
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setSection(si, { questions: [...s.questions, blankQ("mcq")] })}>
-              + Câu trắc nghiệm
-            </button>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setSection(si, { questions: [...s.questions, blankQ("fill")] })}>
-              + Câu điền từ
-            </button>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setSection(si, { questions: [...s.questions, blankQ("essay")] })}>
-              + Bài viết
-            </button>
-          </div>
+          {s.kind !== "cloze" && (
+            <div className="row-actions">
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setSection(si, { questions: [...s.questions, blankQ("mcq")] })}>
+                + Câu trắc nghiệm
+              </button>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setSection(si, { questions: [...s.questions, blankQ("fill")] })}>
+                + Câu điền từ
+              </button>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setSection(si, { questions: [...s.questions, blankQ("essay")] })}>
+                + Bài viết
+              </button>
+            </div>
+          )}
         </section>
       ))}
 
@@ -767,6 +808,21 @@ export default function QuizEditor({ id }: { id: string }) {
   );
 }
 
+/** Cloze sections: blanks vs questions, with a way to drop questions left over after blanks were deleted. */
+function ClozeCount({ blanks, questions, onTrim }: { blanks: number; questions: EQ[]; onTrim: (questions: EQ[]) => void }) {
+  if (!blanks) return <p className="alert alert-bad small">Đoạn văn chưa có chỗ trống. Gõ ___ ở mỗi chỗ học sinh cần chọn từ.</p>;
+  const extra = questions.length - blanks;
+  if (extra <= 0) return <p className="small muted">Đoạn văn có {blanks} chỗ trống, mỗi chỗ là một câu trắc nghiệm bên dưới. Nhập các lựa chọn và chọn đáp án đúng.</p>;
+  return (
+    <p className="alert alert-bad small">
+      Đoạn văn có {blanks} chỗ trống nhưng có {questions.length} câu.{" "}
+      <button className="link-btn danger" type="button" onClick={() => onTrim(questions.slice(0, blanks))}>
+        Xoá {extra} câu thừa ở cuối
+      </button>
+    </p>
+  );
+}
+
 function JsonDialog({ draft, onClose, onApply }: { draft: Draft; onClose: () => void; onApply: (d: Partial<Draft>) => void }) {
   const exported = JSON.stringify(
     {
@@ -799,6 +855,7 @@ function JsonDialog({ draft, onClose, onApply }: { draft: Draft; onClose: () => 
           ? { audio: { storageId: String((s.audio as { storageId: unknown }).storageId), name: String((s.audio as { name?: unknown }).name ?? "audio.mp3") } }
           : {}),
         ...(s.passage ? { passage: String(s.passage) } : {}),
+        ...(s.cloze === true ? { cloze: true } : {}),
         questions: ((s.questions as Record<string, unknown>[]) ?? []).map((q) =>
           q.type === "speak"
             ? { type: "speak" as const, tag: q.tag ? String(q.tag) : undefined, q: String(q.q ?? ""), answerSec: Number(q.answerSec) || 30, prepSec: q.prepSec ? Number(q.prepSec) : undefined }

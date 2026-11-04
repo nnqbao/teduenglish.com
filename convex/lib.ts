@@ -305,6 +305,7 @@ export async function publicSections(ctx: Ctx, quiz: Doc<"quizzes">) {
       listen: s.listen ?? null,
       audio: s.audio ? { name: s.audio.name, url: await ctx.storage.getUrl(s.audio.storageId) } : null,
       passage: s.passage ?? null,
+      cloze: !!s.cloze,
       questions: await Promise.all(
         s.questions.map(async (q) => {
           const image = q.image ? { name: q.image.name, url: await ctx.storage.getUrl(q.image.storageId) } : null;

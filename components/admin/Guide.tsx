@@ -497,6 +497,16 @@ export default function Guide() {
                     <td>Reading, đoạn văn dài</td>
                     <td>Chọn dạng phần “Đọc hiểu”. Dòng đầu là tiêu đề, bài đọc hiện cạnh câu hỏi.</td>
                   </tr>
+                  <tr>
+                    <td>
+                      <b>Điền từ vào đoạn văn</b>
+                    </td>
+                    <td>Guided Cloze: đoạn văn có chỗ trống, mỗi chỗ chọn A/B/C/D (đề thi vào 10, THPT)</td>
+                    <td>
+                      Chọn dạng phần “Điền từ vào đoạn văn”. Dán đoạn văn và gõ <span className="g-code">___</span> ở mỗi chỗ trống, ví dụ{" "}
+                      <span className="g-code">It is a (26) ___ community</span>; web tự đánh số và tạo một câu trắc nghiệm cho mỗi chỗ. Học sinh chọn đáp án ngay trong đoạn văn.
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>

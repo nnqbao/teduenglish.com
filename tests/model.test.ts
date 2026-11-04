@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandFor, grade, normAnswer, normCode, slugify, validateSections, type Section } from "@/convex/model";
+import { bandFor, clozeBlankCount, clozeContext, clozeParts, grade, normAnswer, normCode, slugify, validateSections, type Section } from "@/convex/model";
 import { seedData } from "@/convex/seedData";
 import { parseLoose } from "@/lib/loose-json";
 
@@ -274,5 +274,34 @@ describe("statistics", () => {
     const p = progressOf(student, folders, quizzes, new Set(["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"]) as never);
     expect([p.done, p.total, p.rate, p.pending.length]).toEqual([8, 10, 80, 2]);
     expect(p.byFolder).toEqual([{ id: "gs10", name: "Global Success 10", total: 10, done: 8, rate: 80 }]);
+  });
+});
+
+describe("guided cloze", () => {
+  const passage = "Millbrook\n\nIt is a (26) ____ community of 1,500 residents. Its cultural scene (27) ___ many galleries. Residents come together (28)___.";
+  const mcq = (answer: number) => ({ type: "mcq" as const, q: "", options: ["a", "b", "c", "d"], answer });
+
+  it("finds numbered and plain blanks", () => {
+    expect(clozeBlankCount(passage)).toBe(3);
+    expect(clozeParts("A ___ B ______ C")).toEqual(["A ", " B ", " C"]);
+    expect(clozeBlankCount("no blanks __ here")).toBe(0);
+  });
+
+  it("gives the sentence around a blank", () => {
+    expect(clozeContext(passage, 0)).toBe("It is a ___ community of 1,500 residents.");
+    expect(clozeContext(passage, 1)).toBe("Its cultural scene ___ many galleries.");
+    expect(clozeContext(passage, 2)).toBe("Residents come together ___.");
+    expect(clozeContext("Only ___ here", 0)).toBe("Only ___ here");
+    expect(clozeContext("A ___ and ___ go.", 1)).toBe("A … and ___ go.");
+    expect(clozeContext(passage, 3)).toBe("");
+  });
+
+  it("needs one multiple-choice question per blank", () => {
+    const ok: Section = { title: "Cloze", passage, cloze: true, questions: [mcq(0), mcq(1), mcq(2)] };
+    expect(validateSections([ok])).toEqual([]);
+    expect(validateSections([{ ...ok, questions: [mcq(0), mcq(1)] }]).join(" ")).toMatch(/3 chỗ trống nhưng phần này có 2 câu/);
+    expect(validateSections([{ ...ok, passage: "No blanks." }]).join(" ")).toMatch(/chưa có chỗ trống/);
+    expect(validateSections([{ ...ok, questions: [mcq(0), mcq(1), { type: "fill", q: "", answer: ["x"] }] }]).join(" ")).toMatch(/chỉ dùng câu trắc nghiệm/);
+    expect(grade([ok], { "0-0": 0, "0-1": 3 })).toEqual({ correct: 1, total: 3, wrong: 1, unanswered: 1 });
   });
 });
