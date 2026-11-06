@@ -30,6 +30,8 @@ function proxyHttp(req, res) {
     if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" });
     res.end("Convex backend unavailable");
   });
+  // Trình duyệt bỏ đi giữa chừng → huỷ luôn request tới Convex để không giữ kết nối và dữ liệu chưa đọc
+  res.on("close", () => upstream.destroy());
   req.pipe(upstream);
 }
 
@@ -51,6 +53,10 @@ function proxyUpgrade(req, socket, head) {
   };
   upstream.on("error", close);
   socket.on("error", close);
+  // Một phía đóng thì đóng luôn phía kia. Thiếu 2 dòng này, khi trình duyệt đóng trang kết nối tới Convex vẫn mở,
+  // Convex tiếp tục đẩy dữ liệu mà không ai đọc → dồn vào bộ đệm mạng của macOS tới khi cả máy nghẽn.
+  upstream.on("close", close);
+  socket.on("close", close);
 }
 
 const server = http.createServer((req, res) => (isConvex(req.url) ? proxyHttp(req, res) : handle(req, res)));
