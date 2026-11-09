@@ -199,3 +199,42 @@ tr.row-link:hover td { background: var(--surface-2); }
 
 /* Cloze blank in the editor: the sentence it sits in. */
 .cloze-context { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--surface-2); font-style: italic; }
+/* "Thầy cô muốn soạn bài gì?": one big card per skill, each with its own colour. */
+.sk-listening { --sk: #2563eb; --sk-soft: #eaf1ff; }
+.sk-speaking { --sk: #d81d0a; --sk-soft: #fdf1ef; }
+.sk-reading { --sk: #1e7a4c; --sk-soft: #e8f5ee; }
+.sk-writing { --sk: #9a5b00; --sk-soft: #fdf3e2; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .sk-listening { --sk: #7aa7ff; --sk-soft: rgba(37, 99, 235, 0.16); }
+  :root:not([data-theme="light"]) .sk-speaking { --sk: #ff8a7a; --sk-soft: rgba(216, 29, 10, 0.16); }
+  :root:not([data-theme="light"]) .sk-reading { --sk: #6fd3a0; --sk-soft: rgba(30, 122, 76, 0.18); }
+  :root:not([data-theme="light"]) .sk-writing { --sk: #f0b45a; --sk-soft: rgba(154, 91, 0, 0.18); }
+}
+:root[data-theme="dark"] .sk-listening { --sk: #7aa7ff; --sk-soft: rgba(37, 99, 235, 0.16); }
+:root[data-theme="dark"] .sk-speaking { --sk: #ff8a7a; --sk-soft: rgba(216, 29, 10, 0.16); }
+:root[data-theme="dark"] .sk-reading { --sk: #6fd3a0; --sk-soft: rgba(30, 122, 76, 0.18); }
+:root[data-theme="dark"] .sk-writing { --sk: #f0b45a; --sk-soft: rgba(154, 91, 0, 0.18); }
+
+.skill-picker { margin-bottom: 18px; }
+.skill-grid { display: grid; gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@container site (max-width: 900px) { .skill-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container site (max-width: 480px) { .skill-grid { grid-template-columns: 1fr; } }
+.skill-card {
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+  padding: 20px; min-height: 100%;
+  border-radius: 20px; border: 2px solid var(--sk-soft); background: var(--sk-soft);
+  color: var(--ink); text-decoration: none; text-align: left; font: inherit; cursor: pointer;
+  transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
+}
+.skill-card:hover { border-color: var(--sk); transform: translateY(-2px); box-shadow: var(--shadow); }
+.skill-icon { font-size: 2.2rem; line-height: 1; width: 64px; height: 64px; display: grid; place-items: center; border-radius: 18px; background: var(--surface); }
+.skill-name { font-family: var(--font-display); font-weight: 800; font-size: 1.5rem; color: var(--sk); }
+.skill-what { font-size: 0.88rem; color: var(--muted); line-height: 1.5; }
+.skill-points { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; font-weight: 600; }
+.skill-points span::before { content: "✓ "; color: var(--sk); }
+.skill-go { margin-top: auto; padding-top: 6px; font-weight: 800; color: var(--sk); }
+
+/* The editor's header shows which skill it is writing. */
+.skill-head { display: flex; align-items: center; gap: 14px; }
+.skill-badge { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; font-size: 1.6rem; background: var(--sk-soft, var(--surface-2)); flex-shrink: 0; }
+.skill-tip { margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--sk-soft); border-left: 4px solid var(--sk); font-size: 0.88rem; }

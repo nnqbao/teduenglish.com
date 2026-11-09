@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
@@ -11,6 +11,7 @@ import { parseLoose } from "@/lib/loose-json";
 import { errMsg } from "@/lib/ui";
 import { Modal, useAdmin } from "./AdminShell";
 import RichInput from "./RichInput";
+import SkillPicker, { SKILL_META, type Skill } from "./SkillPicker";
 
 /* ---------- editor state ---------- */
 let uidSeq = 0;
@@ -208,9 +209,96 @@ function move<T>(arr: T[], i: number, dir: -1 | 1): T[] {
 }
 
 /* ---------- component ---------- */
+/* ---------- one editor per skill ---------- */
+type AddKind = EQ["type"] | "tfng";
+/** What each skill's editor offers: the section kinds, the question types, and the add buttons. */
+const SKILL_EDIT: Record<Exclude<Skill, "general">, { kinds: ES["kind"][]; types: EQ["type"][]; part: string; titleHint: string; add: [AddKind, string][]; tip: string }> = {
+  listening: {
+    kinds: ["listen"],
+    types: ["mcq", "fill"],
+    part: "Part",
+    titleHint: "Part 1 · Section 1",
+    add: [
+      ["mcq", "+ Câu trắc nghiệm"],
+      ["fill", "+ Câu điền từ"],
+    ],
+    tip: "Mỗi Part: tải file MP3 (hoặc dán lời thoại để máy đọc), rồi thêm câu hỏi.",
+  },
+  reading: {
+    kinds: ["passage", "cloze"],
+    types: ["mcq", "fill"],
+    part: "Passage",
+    titleHint: "Passage 1 · Rooftop Gardens",
+    add: [
+      ["mcq", "+ Câu trắc nghiệm"],
+      ["tfng", "+ Câu True / False / Not Given"],
+      ["fill", "+ Câu điền từ"],
+    ],
+    tip: "Mỗi Passage: dán bài đọc (dòng đầu là tiêu đề) rồi thêm câu hỏi; hoặc chọn “Guided Cloze” để mỗi ___ trong đoạn văn thành một câu A/B/C/D.",
+  },
+  writing: {
+    kinds: ["plain"],
+    types: ["essay"],
+    part: "Task",
+    titleHint: "Writing Task 1",
+    add: [["essay", "+ Thêm đề bài"]],
+    tip: "Mỗi Task một đề: nhập đề, số từ tối thiểu và gợi ý; Task 1 thêm ảnh biểu đồ. Học sinh viết trên web, thầy cô chấm band và nhận xét.",
+  },
+  speaking: {
+    kinds: ["plain"],
+    types: ["speak"],
+    part: "Part",
+    titleHint: "Part 1 · Introduction & interview",
+    add: [["speak", "+ Thêm câu hỏi"]],
+    tip: "Mỗi câu hỏi máy sẽ đọc to rồi ghi âm câu trả lời. Part 2 (thẻ đề) nên có 60 giây chuẩn bị và 120 giây nói.",
+  },
+};
+
+const KIND_LABEL: Record<ES["kind"], string> = {
+  plain: "Câu hỏi thường",
+  listen: "Nghe (file MP3 hoặc máy đọc lời thoại)",
+  passage: "Bài đọc + câu hỏi",
+  cloze: "Điền từ vào đoạn văn (Guided Cloze)",
+};
+
+/** Example name and description for a new quiz in each editor. */
+const TITLE_HINT: Record<Skill, [string, string]> = {
+  listening: ["IELTS Listening · Test 1", "Section 1 · Đăng ký khoá học"],
+  reading: ["IELTS Reading · Test 1", "Academic · 3 passages"],
+  writing: ["IELTS Writing · Test 1", "Task 1 & Task 2 · Academic"],
+  speaking: ["IELTS Speaking · Hometown", "Part 1, 2 & 3 · ghi âm"],
+  general: ["Trắc nghiệm Unit 4–5", "Vocabulary · Grammar"],
+};
+
+const TYPE_LABEL: Record<EQ["type"], string> = { mcq: "Trắc nghiệm", fill: "Điền từ / viết lại câu", essay: "Bài viết (giáo viên chấm)", speak: "Nói (thu âm, giáo viên chấm)" };
+
+function newQuestion(kind: AddKind): EQ {
+  return kind === "tfng" ? { ...blankQ("mcq"), options: ["True", "False", "Not Given"] } : blankQ(kind);
+}
+
+function skillSection(skill: Exclude<Skill, "general">, n: number): ES {
+  const e = SKILL_EDIT[skill];
+  return { uid: uid(), title: `${e.part} ${n}`, kind: e.kinds[0], media: "", audio: null, questions: [newQuestion(e.add[0][0])] };
+}
+
+/** The editor an existing quiz opens in, from what it contains; mixed quizzes keep the all-in-one editor. */
+function inferSkill(sections: ES[]): Skill {
+  const qs = sections.flatMap((s) => s.questions);
+  if (!qs.length) return "general";
+  if (qs.every((q) => q.type === "speak")) return "speaking";
+  if (qs.every((q) => q.type === "essay")) return "writing";
+  const autoMarked = qs.every((q) => q.type === "mcq" || q.type === "fill");
+  if (autoMarked && sections.every((s) => s.kind === "listen")) return "listening";
+  if (autoMarked && sections.every((s) => s.kind === "passage" || s.kind === "cloze")) return "reading";
+  return "general";
+}
+
 export default function QuizEditor({ id }: { id: string }) {
   const isNew = id === "moi";
   const router = useRouter();
+  const params = useSearchParams();
+  const asked = params.get("ky-nang");
+  const askedSkill: Skill | null = asked && asked in SKILL_META ? (asked as Skill) : null;
   const { token, toast } = useAdmin();
   const doc = useQuery(api.admin.quiz, isNew ? "skip" : { token, id: id as Id<"quizzes"> });
   const folders = useQuery(api.admin.folders, { token });
@@ -220,18 +308,33 @@ export default function QuizEditor({ id }: { id: string }) {
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [jsonOpen, setJsonOpen] = useState(false);
+  const [skill, setSkill] = useState<Skill | null>(null);
 
   // Initialise once from the loaded quiz (or a blank one).
   useEffect(() => {
     if (draft) return;
-    if (isNew && folders) {
+    if (isNew && folders && askedSkill) {
       // "Soạn bài mới" on a folder's page passes that folder as ?thu-muc=…
-      const preset = new URLSearchParams(window.location.search).get("thu-muc");
+      const preset = params.get("thu-muc");
       const folder = folders.find((f) => f.slug === preset)?.slug ?? folders[0]?.slug ?? "";
+      const base: Draft = { slug: "", folder, title: "", subtitle: "", minutes: 10, code: "", featured: false, ielts: "", published: true, timer: "count", accent: "uk", speakPrep: 15, speakMode: "both", examOn: false, opensAt: "", closesAt: "", focusGuard: null, term: "", sections: [blankS()] };
+      const ielts = folder === "ielts";
+      const start: Record<Skill, Partial<Draft>> = {
+        general: {},
+        listening: { minutes: 30, ielts: ielts ? "listening" : "", sections: [skillSection("listening", 1)] },
+        reading: { minutes: 60, ielts: ielts ? "reading" : "", sections: [skillSection("reading", 1)] },
+        writing: { minutes: 60, ielts: "writing", sections: ieltsWritingTemplate() },
+        speaking: { minutes: 14, ielts: "speaking", timer: "off", sections: ieltsSpeakingTemplate() },
+      };
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDraft({ slug: "", folder, title: "", subtitle: "", minutes: 10, code: "", featured: false, ielts: "", published: true, timer: "count", accent: "uk", speakPrep: 15, speakMode: "both", examOn: false, opensAt: "", closesAt: "", focusGuard: null, term: "", sections: [blankS()] });
-    } else if (doc) setDraft(fromDoc(doc));
-  }, [doc, folders, isNew, draft]);
+      setDraft({ ...base, ...start[askedSkill] });
+      setSkill(askedSkill);
+    } else if (!isNew && doc) {
+      const loaded = fromDoc(doc);
+      setDraft(loaded);
+      setSkill(inferSkill(loaded.sections));
+    }
+  }, [doc, folders, isNew, draft, askedSkill, params]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -241,7 +344,19 @@ export default function QuizEditor({ id }: { id: string }) {
   }, [dirty]);
 
   if (!isNew && doc === null) return <p className="empty">Không tìm thấy bài này.</p>;
-  if (!draft || !folders) return <p className="empty">Đang tải…</p>;
+  // A new quiz starts with the choice of skill.
+  if (isNew && !askedSkill)
+    return (
+      <div className="q-editor">
+        <Link className="back-link" href="/admin/bai-lam">
+          ← Danh sách bài
+        </Link>
+        <SkillPicker folder={params.get("thu-muc") ?? undefined} />
+      </div>
+    );
+  if (!draft || !folders || !skill) return <p className="empty">Đang tải…</p>;
+  const sk = skill === "general" ? null : SKILL_EDIT[skill];
+  const meta = SKILL_META[skill];
 
   const d = draft;
   const update = (patch: Partial<Draft>) => {
@@ -309,12 +424,19 @@ export default function QuizEditor({ id }: { id: string }) {
 
       <section className="panel">
         <div className="toolbar">
-          <div>
-            <p className="eyebrow">{isNew ? "Soạn bài mới" : "Sửa bài"}</p>
-            <h2>{d.title || "Bài chưa đặt tên"}</h2>
+          <div className="skill-head">
+            <span className={`skill-badge ${meta.tone}`} aria-hidden="true">
+              {meta.icon}
+            </span>
+            <div>
+              <p className="eyebrow">
+                {isNew ? "Soạn bài mới" : "Sửa bài"} · {meta.name}
+              </p>
+              <h2>{d.title || "Bài chưa đặt tên"}</h2>
+            </div>
           </div>
           <div className="actions">
-            <button
+            {(skill === "writing" || skill === "general") && <button
               className="btn btn-ghost btn-sm"
               type="button"
               onClick={() => {
@@ -324,8 +446,8 @@ export default function QuizEditor({ id }: { id: string }) {
               }}
             >
               Dùng mẫu IELTS Writing
-            </button>
-            <button
+            </button>}
+            {(skill === "speaking" || skill === "general") && <button
               className="btn btn-ghost btn-sm"
               type="button"
               onClick={() => {
@@ -341,7 +463,7 @@ export default function QuizEditor({ id }: { id: string }) {
               }}
             >
               🎤 Dùng mẫu IELTS Speaking
-            </button>
+            </button>}
             <button className="btn btn-ghost btn-sm" type="button" onClick={() => setJsonOpen(true)}>
               Nhập / xuất JSON
             </button>
@@ -352,6 +474,7 @@ export default function QuizEditor({ id }: { id: string }) {
             )}
           </div>
         </div>
+        {sk && <p className={`skill-tip ${meta.tone}`}>💡 {sk.tip}</p>}
         {errors.length > 0 && (
           <div className="alert alert-bad" role="alert">
             {errors.slice(0, 8).join("\n")}
@@ -366,14 +489,14 @@ export default function QuizEditor({ id }: { id: string }) {
               id="qz-title"
               value={d.title}
               onChange={(e) => update({ title: e.target.value })}
-              placeholder="Trắc nghiệm Unit 4–5"
+              placeholder={TITLE_HINT[skill][0]}
             />
           </div>
           <div className="field">
             <label htmlFor="qz-sub">
               Mô tả ngắn <span className="hint">(không bắt buộc)</span>
             </label>
-            <input className="input" id="qz-sub" value={d.subtitle} onChange={(e) => update({ subtitle: e.target.value })} placeholder="Vocabulary · Grammar" />
+            <input className="input" id="qz-sub" value={d.subtitle} onChange={(e) => update({ subtitle: e.target.value })} placeholder={TITLE_HINT[skill][1]} />
           </div>
         </div>
         <div className="row-3">
@@ -399,18 +522,27 @@ export default function QuizEditor({ id }: { id: string }) {
           </div>
         </div>
         <div className="row-3">
-          <div className="field">
-            <label htmlFor="qz-ielts">
-              Kỹ năng IELTS <span className="hint">(để xếp hạng)</span>
-            </label>
-            <select className="select" id="qz-ielts" value={d.ielts} onChange={(e) => update({ ielts: e.target.value as Draft["ielts"] })}>
-              <option value="">Không hiện band</option>
-              <option value="listening">IELTS Listening</option>
-              <option value="reading">IELTS Reading</option>
-              <option value="writing">IELTS Writing (band do giáo viên chấm)</option>
-              <option value="speaking">IELTS Speaking (band do giáo viên chấm)</option>
-            </select>
-          </div>
+          {skill === "general" ? (
+            <div className="field">
+              <label htmlFor="qz-ielts">
+                Kỹ năng IELTS <span className="hint">(để xếp hạng)</span>
+              </label>
+              <select className="select" id="qz-ielts" value={d.ielts} onChange={(e) => update({ ielts: e.target.value as Draft["ielts"] })}>
+                <option value="">Không hiện band</option>
+                <option value="listening">IELTS Listening</option>
+                <option value="reading">IELTS Reading</option>
+                <option value="writing">IELTS Writing (band do giáo viên chấm)</option>
+                <option value="speaking">IELTS Speaking (band do giáo viên chấm)</option>
+              </select>
+            </div>
+          ) : (
+            <div className="field" style={{ justifyContent: "flex-end" }}>
+              <label className="switch" title="Đổi điểm sang band IELTS và tính vào thứ hạng của lớp">
+                <input type="checkbox" checked={d.ielts === skill} onChange={(e) => update({ ielts: e.target.checked ? skill : "" })} />
+                {skill === "listening" || skill === "reading" ? `Hiện band IELTS ${meta.name} & xếp hạng` : `Chấm band IELTS ${meta.name} & xếp hạng`}
+              </label>
+            </div>
+          )}
           <div className="field">
             <label htmlFor="qz-slug">
               Đường link <span className="hint">(/bai/…)</span>
@@ -419,7 +551,7 @@ export default function QuizEditor({ id }: { id: string }) {
           </div>
         </div>
         <div className="row-3">
-          <div className="field">
+          {skill !== "speaking" && <div className="field">
             <label htmlFor="qz-timer">
               Đếm giờ <span className="hint">(theo số phút ở trên)</span>
             </label>
@@ -428,7 +560,7 @@ export default function QuizEditor({ id }: { id: string }) {
               <option value="auto">Đếm ngược, hết giờ tự nộp</option>
               <option value="off">Không đếm giờ</option>
             </select>
-          </div>
+          </div>}
           {d.sections.some((s) => s.questions.some((q) => q.type === "speak")) && (
             <div className="field">
               <label htmlFor="qz-speakprep">
@@ -450,13 +582,13 @@ export default function QuizEditor({ id }: { id: string }) {
               </select>
             </div>
           )}
-          <div className="field">
+          {(skill === "listening" || skill === "speaking" || skill === "general") && <div className="field">
             <label htmlFor="qz-accent">Giọng đọc phần nghe / câu hỏi Speaking</label>
             <select className="select" id="qz-accent" value={d.accent} onChange={(e) => update({ accent: e.target.value as Draft["accent"] })}>
               <option value="uk">🇬🇧 Anh (UK)</option>
               <option value="us">🇺🇸 Mỹ (US)</option>
             </select>
-          </div>
+          </div>}
           <div className="field">
             <label htmlFor="qz-term">Học kỳ</label>
             <select className="select" id="qz-term" value={d.term} onChange={(e) => update({ term: e.target.value as Draft["term"] })}>
@@ -491,7 +623,7 @@ export default function QuizEditor({ id }: { id: string }) {
         <section className="sec-edit" key={s.uid}>
           <div className="sec-head">
             <b className="eyebrow">
-              Phần {si + 1} · {s.questions.length} câu
+              {sk ? sk.part : "Phần"} {si + 1} · {s.questions.length} {skill === "writing" ? "đề" : "câu"}
             </b>
             <div className="row-actions">
               <button className="link-btn" type="button" disabled={si === 0} onClick={() => setSections(move(d.sections, si, -1))}>
@@ -504,18 +636,18 @@ export default function QuizEditor({ id }: { id: string }) {
                 className="link-btn danger"
                 type="button"
                 disabled={d.sections.length === 1}
-                onClick={() => confirm(`Xóa phần ${si + 1} và ${s.questions.length} câu hỏi?`) && setSections(d.sections.filter((_, i) => i !== si))}
+                onClick={() => confirm(`Xóa ${sk ? sk.part : "phần"} ${si + 1} và ${s.questions.length} câu hỏi?`) && setSections(d.sections.filter((_, i) => i !== si))}
               >
-                Xóa phần
+                Xóa {sk ? sk.part : "phần"}
               </button>
             </div>
           </div>
           <div className="row-2">
             <div className="field">
-              <label htmlFor={`s-title-${s.uid}`}>Tiêu đề phần</label>
-              <input className="input compact" id={`s-title-${s.uid}`} value={s.title} onChange={(e) => setSection(si, { title: e.target.value })} placeholder="Vocabulary & Grammar" />
+              <label htmlFor={`s-title-${s.uid}`}>Tiêu đề {sk ? sk.part : "phần"}</label>
+              <input className="input compact" id={`s-title-${s.uid}`} value={s.title} onChange={(e) => setSection(si, { title: e.target.value })} placeholder={sk?.titleHint ?? "Vocabulary & Grammar"} />
             </div>
-            <div className="field">
+            {(!sk || sk.kinds.length > 1) && <div className="field">
               <label htmlFor={`s-kind-${s.uid}`}>Dạng phần</label>
               <select
                 className="select compact"
@@ -526,12 +658,13 @@ export default function QuizEditor({ id }: { id: string }) {
                   setSection(si, kind === "cloze" ? { kind, questions: growTo(s.questions, clozeBlankCount(s.media)) } : { kind });
                 }}
               >
-                <option value="plain">Câu hỏi thường</option>
-                <option value="listen">Nghe (file MP3 hoặc máy đọc lời thoại)</option>
-                <option value="passage">Đọc hiểu (có bài đọc)</option>
-                <option value="cloze">Điền từ vào đoạn văn (Guided Cloze)</option>
+                {(sk ? sk.kinds : (Object.keys(KIND_LABEL) as ES["kind"][])).map((k) => (
+                  <option key={k} value={k}>
+                    {KIND_LABEL[k]}
+                  </option>
+                ))}
               </select>
-            </div>
+            </div>}
           </div>
           {s.kind === "listen" && (
             <div className="field">
@@ -572,9 +705,9 @@ export default function QuizEditor({ id }: { id: string }) {
           {s.questions.map((q, qi) => (
             <div className="qe" key={q.uid}>
               <div className="qe-head">
-                <b>{s.kind === "cloze" ? `Chỗ trống ${qi + 1}` : `Câu ${qi + 1}`}</b>
+                <b>{s.kind === "cloze" ? `Chỗ trống ${qi + 1}` : skill === "writing" ? `Đề ${qi + 1}` : `Câu ${qi + 1}`}</b>
                 <div className="row-actions">
-                  {s.kind !== "cloze" && (
+                  {s.kind !== "cloze" && (!sk || sk.types.length > 1) && (
                     <select
                       className="select compact"
                       style={{ width: "auto" }}
@@ -586,10 +719,11 @@ export default function QuizEditor({ id }: { id: string }) {
                         else setQuestion(si, qi, { type });
                       }}
                     >
-                      <option value="mcq">Trắc nghiệm</option>
-                      <option value="fill">Điền từ / viết lại câu</option>
-                      <option value="essay">Bài viết (giáo viên chấm)</option>
-                      <option value="speak">Nói (thu âm, giáo viên chấm)</option>
+                      {(sk ? sk.types : (Object.keys(TYPE_LABEL) as EQ["type"][])).map((t) => (
+                        <option key={t} value={t}>
+                          {TYPE_LABEL[t]}
+                        </option>
+                      ))}
                     </select>
                   )}
                   <button className="link-btn" type="button" disabled={qi === 0} onClick={() => setSection(si, { questions: move(s.questions, qi, -1) })} aria-label="Lên">
@@ -622,7 +756,7 @@ export default function QuizEditor({ id }: { id: string }) {
                   <div className="row-2" style={{ gridTemplateColumns: "minmax(0,3fr) minmax(0,1fr)" }}>
                     <div className="field">
                       <span className="label-like">
-                        Câu hỏi <span className="hint">— bôi đen chữ rồi bấm B (in đậm) hoặc U (gạch chân)</span>
+                        {skill === "writing" ? "Đề bài" : "Câu hỏi"} <span className="hint">— bôi đen chữ rồi bấm B (in đậm) hoặc U (gạch chân)</span>
                       </span>
                       <RichInput
                         id={`q-${q.uid}`}
@@ -630,7 +764,17 @@ export default function QuizEditor({ id }: { id: string }) {
                         rows={q.type === "essay" || q.type === "speak" ? 4 : 2}
                         value={q.q}
                         onChange={(v) => setQuestion(si, qi, { q: v })}
-                        placeholder={q.type === "speak" ? "Câu hỏi máy sẽ đọc to, ví dụ: Where is your hometown?" : "Ví dụ: She ___ to school every day."}
+                        placeholder={
+                          q.type === "speak"
+                            ? "Câu hỏi máy sẽ đọc to, ví dụ: Where is your hometown?"
+                            : q.type === "essay"
+                              ? "Ví dụ: Some people believe that … Discuss both views and give your own opinion."
+                              : skill === "listening"
+                                ? "Ví dụ: What is the woman's phone number?"
+                                : skill === "reading"
+                                  ? "Ví dụ: Bees in cities produce less honey than bees in the countryside."
+                                  : "Ví dụ: She ___ to school every day."
+                        }
                         blank={q.type === "mcq" || q.type === "fill"}
                       />
                     </div>
@@ -759,23 +903,19 @@ export default function QuizEditor({ id }: { id: string }) {
           ))}
           {s.kind !== "cloze" && (
             <div className="row-actions">
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setSection(si, { questions: [...s.questions, blankQ("mcq")] })}>
-                + Câu trắc nghiệm
-              </button>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setSection(si, { questions: [...s.questions, blankQ("fill")] })}>
-                + Câu điền từ
-              </button>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setSection(si, { questions: [...s.questions, blankQ("essay")] })}>
-                + Bài viết
-              </button>
+              {(sk ? sk.add : ([["mcq", "+ Câu trắc nghiệm"], ["fill", "+ Câu điền từ"], ["essay", "+ Bài viết"]] as [AddKind, string][])).map(([kind, label]) => (
+                <button key={kind} className="btn btn-ghost btn-sm" type="button" onClick={() => setSection(si, { questions: [...s.questions, newQuestion(kind)] })}>
+                  {label}
+                </button>
+              ))}
             </div>
           )}
         </section>
       ))}
 
       <div>
-        <button className="btn btn-ghost" type="button" onClick={() => setSections([...d.sections, blankS()])}>
-          + Thêm phần mới
+        <button className="btn btn-ghost" type="button" onClick={() => setSections([...d.sections, skill !== "general" ? skillSection(skill, d.sections.length + 1) : blankS()])}>
+          + Thêm {sk ? sk.part : "phần mới"}
         </button>
       </div>
 

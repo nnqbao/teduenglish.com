@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { examTime } from "@/components/site/parts";
 import { stamp } from "@/lib/ui";
 import { useAdmin, useRun } from "./AdminShell";
+import SkillPicker from "./SkillPicker";
 
 export default function Quizzes() {
   const { token } = useAdmin();
@@ -25,11 +26,13 @@ export default function Quizzes() {
     .sort((a, b) => (order.get(a.folder) ?? 99) - (order.get(b.folder) ?? 99));
 
   return (
+    <>
+    <SkillPicker />
     <section className="panel">
       <div className="toolbar">
         <div>
           <p className="eyebrow">Làm trên web · chấm tự động</p>
-          <h2>Bài làm trên web</h2>
+          <h2>Bài đã soạn</h2>
           <p className="small muted">Trắc nghiệm, điền từ, viết lại câu, IELTS Listening/Reading. Đáp án chỉ lưu trên máy chủ, học sinh không xem được trước khi nộp.</p>
         </div>
         <div className="actions">
@@ -139,5 +142,6 @@ export default function Quizzes() {
         </div>
       )}
     </section>
+    </>
   );
 }
