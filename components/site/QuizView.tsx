@@ -695,7 +695,7 @@ function QuizRunner({
         </p>
       )}
       {meta.resultsHidden && !meta.exam && !preview && !att.submitted && (
-        <p className="alert alert-good">🔒 Bài này chưa hiện điểm và đáp án sau khi nộp. {teacher} sẽ công bố kết quả sau.</p>
+        <p className="alert alert-good">🔒 Bài này chưa hiện điểm và đáp án sau khi nộp; {teacher} sẽ công bố kết quả sau.</p>
       )}
       {held && (
         <section className="result">
