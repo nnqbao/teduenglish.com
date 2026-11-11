@@ -238,3 +238,6 @@ tr.row-link:hover td { background: var(--surface-2); }
 .skill-head { display: flex; align-items: center; gap: 14px; }
 .skill-badge { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; font-size: 1.6rem; background: var(--sk-soft, var(--surface-2)); flex-shrink: 0; }
 .skill-tip { margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--sk-soft); border-left: 4px solid var(--sk); font-size: 0.88rem; }
+
+/* Folder list: a folder whose results are hidden from students. */
+.results-off { color: var(--accent-ink); font-weight: 700; }

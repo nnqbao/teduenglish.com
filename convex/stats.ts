@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { allFolders, attemptBand, canOpen, requireAdmin, skillOf } from "./lib";
+import { allFolders, attemptBand, canOpen, heldFolders, requireAdmin, resultsHeld, skillOf } from "./lib";
 import { allCards, scoresOf, type Card } from "./summary";
 import { maskedName, normCode, parentCodeFor, percent, rankBy, type IeltsSkill, viCompare } from "./model";
 
@@ -15,13 +15,14 @@ export type IeltsTest = { id: string; title: string; skill: IeltsSkill; folder: 
 
 /**
  * Best band per student per IELTS test (from the small score rows, not the attempts).
- * Scheduled exams count only once their results are released, unless `withUnreleased` (teachers).
+ * Scheduled exams and folders with results hidden count only once results are shown, unless `withUnreleased` (teachers).
  */
 export async function ieltsBoard(ctx: Ctx, withUnreleased = false) {
   const tests: IeltsTest[] = [];
   const scores: Record<string, Record<string, number>> = {};
+  const held = await heldFolders(ctx);
   for (const c of await allCards(ctx)) {
-    if (!c.skill || (c.exam && !c.exam.releasedAt && !withUnreleased)) continue;
+    if (!c.skill || (resultsHeld(c, held) && !withUnreleased)) continue;
     tests.push({ id: c.slug, title: c.title, skill: c.skill, folder: c.folder });
     for (const s of await ctx.db.query("scores").withIndex("by_quiz", (x) => x.eq("quizId", c.quizId)).collect())
       if (s.band != null) (scores[s.studentId] ??= {})[c.slug] = s.band;

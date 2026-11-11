@@ -667,6 +667,8 @@ function QuizRunner({
 
   /* ---------- render ---------- */
   let num = 0;
+  // Exam not yet released, or a folder with results hidden: the answers are not shown again after handing in.
+  const held = att.submitted && !!att.outcome?.examHidden;
   return (
     <div className="quiz-wrap" ref={rootRef}>
       {meta.guard && !preview && token && !att.submitted && (
@@ -692,7 +694,21 @@ function QuizRunner({
           </button>
         </p>
       )}
-      {att.submitted && att.outcome?.examHidden && <p className="alert alert-good">✓ Em đã nộp bài thi. Kết quả sẽ hiện khi thầy cô công bố.</p>}
+      {meta.resultsHidden && !meta.exam && !preview && !att.submitted && (
+        <p className="alert alert-good">🔒 Bài này chưa hiện điểm và đáp án sau khi nộp. {teacher} sẽ công bố kết quả sau.</p>
+      )}
+      {held && (
+        <section className="result">
+          <div>
+            <p className="eyebrow">{meta.exam ? "Bài thi tập trung" : meta.folderName}</p>
+            <h2>✓ Em đã nộp bài{meta.exam ? " thi" : ""}</h2>
+            <p className="small muted">Điểm và đáp án sẽ hiện khi {teacher} công bố kết quả.</p>
+          </div>
+          <Link className="btn btn-primary" href="/">
+            Về trang học tập
+          </Link>
+        </section>
+      )}
       {att.submitted && att.outcome && !att.outcome.examHidden && (
         <ResultBlock
           outcome={att.outcome}
@@ -706,7 +722,7 @@ function QuizRunner({
           copyFallback={showCopy}
         />
       )}
-      {att.sections.map((sa) => {
+      {!held && att.sections.map((sa) => {
         const sec = sections[sa.si];
         const first = num + 1;
         const cards = sa.order.map((qi) => {

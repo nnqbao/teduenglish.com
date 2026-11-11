@@ -222,6 +222,7 @@ export const folders = query({
       name: f.name,
       detail: f.detail,
       order: f.order,
+      hideResults: !!f.hideResults,
       quizCount: quizzes.filter((q) => q.folder === f.slug).length,
       resourceCount: resources.filter((r) => r.folder === f.slug).length,
       studentCount: students.filter((s) => s.active && (s.folders.includes(f.slug) || s.folders.includes("*"))).length,
@@ -265,7 +266,7 @@ export const folderDetail = query({
       });
     }
     return {
-      folder: { _id: f._id, slug: f.slug, name: f.name, badge: f.badge, detail: f.detail },
+      folder: { _id: f._id, slug: f.slug, name: f.name, badge: f.badge, detail: f.detail, hideResults: !!f.hideResults },
       quizzes,
       resources: resources.map((r) => ({ _id: r._id, title: r.title, kind: r.kind, audio: r.file?.media === "audio", hidden: !!r.hidden })),
       students: students.map((s) => ({
@@ -291,6 +292,16 @@ export const setQuizPublished = mutation({
     if (!q) fail("Không tìm thấy bài.");
     await ctx.db.patch(q._id, { published: args.published, updatedAt: Date.now() });
     await syncCard(ctx, q._id);
+  },
+});
+
+/** Hide (or show again) the results of every quiz in a folder: students and parents only see "handed in". */
+export const setFolderResultsHidden = mutation({
+  args: { token: v.string(), id: v.id("folders"), hidden: v.boolean() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    if (!(await ctx.db.get(args.id))) fail("Không tìm thấy thư mục.");
+    await ctx.db.patch(args.id, { hideResults: args.hidden || undefined });
   },
 });
 

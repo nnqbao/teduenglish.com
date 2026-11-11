@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandFor, clozeBlankCount, clozeContext, clozeParts, grade, normAnswer, normCode, slugify, validateSections, type Section } from "@/convex/model";
+import { bandFor, clozeBlankCount, clozeContext, clozeParts, grade, normAnswer, resultsHeld, normCode, slugify, validateSections, type Section } from "@/convex/model";
 import { seedData } from "@/convex/seedData";
 import { parseLoose } from "@/lib/loose-json";
 
@@ -303,5 +303,17 @@ describe("guided cloze", () => {
     expect(validateSections([{ ...ok, passage: "No blanks." }]).join(" ")).toMatch(/chưa có chỗ trống/);
     expect(validateSections([{ ...ok, questions: [mcq(0), mcq(1), { type: "fill", q: "", answer: ["x"] }] }]).join(" ")).toMatch(/chỉ dùng câu trắc nghiệm/);
     expect(grade([ok], { "0-0": 0, "0-1": 3 })).toEqual({ correct: 1, total: 3, wrong: 1, unanswered: 1 });
+  });
+});
+
+describe("hidden results", () => {
+  const held = new Set(["test-ielts"]);
+  it("holds results for unreleased exams and folders with results hidden", () => {
+    expect(resultsHeld({ folder: "test-ielts" }, held)).toBe(true);
+    expect(resultsHeld({ folder: "gs9" }, held)).toBe(false);
+    expect(resultsHeld({ folder: "gs9", exam: {} }, held)).toBe(true);
+    expect(resultsHeld({ folder: "gs9", exam: { releasedAt: 1 } }, held)).toBe(false);
+    // Releasing an exam does not override a folder that still hides results.
+    expect(resultsHeld({ folder: "test-ielts", exam: { releasedAt: 1 } }, held)).toBe(true);
   });
 });

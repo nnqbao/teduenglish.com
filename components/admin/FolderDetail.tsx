@@ -23,6 +23,7 @@ export default function FolderDetail({ slug }: { slug: string }) {
   const setPublished = useMutation(api.admin.setQuizPublished);
   const setResourceHidden = useMutation(api.admin.setResourceHidden);
   const setFolders = useMutation(api.admin.setStudentsFolders);
+  const setResultsHidden = useMutation(api.admin.setFolderResultsHidden);
   const [q, setQ] = useState("");
   const [modal, setModal] = useState<"pick" | "new" | "import" | null>(null);
 
@@ -83,7 +84,22 @@ export default function FolderDetail({ slug }: { slug: string }) {
               <code>{folder.slug}</code> · {quizzes.length} bài làm{hidden.length ? ` (${hidden.length} đang ẩn)` : ""} · {resources.length} tài liệu · {students.length} học sinh
             </p>
           </div>
+          <div className="actions">
+            <ResultsToggle
+              hidden={folder.hideResults}
+              name={folder.name}
+              onChange={(h) =>
+                run(() => setResultsHidden({ token, id: folder._id, hidden: h }), h ? "Đã ẩn kết quả: học sinh nộp bài chỉ thấy “đã nộp”." : "Đã hiện kết quả cho học sinh và phụ huynh.")
+              }
+            />
+          </div>
         </div>
+        {folder.hideResults && (
+          <p className="alert alert-warn">
+            🔒 <b>Đang ẩn kết quả.</b> Học sinh vẫn làm và nộp bài bình thường nhưng không thấy điểm, đáp án hay nhận xét; phụ huynh và bảng xếp hạng cũng chưa thấy. Thầy cô vẫn
+            xem đầy đủ ở trang Kết quả. Bấm “Hiện kết quả” khi muốn công bố.
+          </p>
+        )}
       </section>
 
       <section className="panel">
@@ -451,5 +467,26 @@ function PickStudents({
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** The folder's "hide results" switch, used on the folder page and in the folder list. */
+export function ResultsToggle({ hidden, name, onChange, small }: { hidden: boolean; name: string; onChange: (hidden: boolean) => void; small?: boolean }) {
+  return hidden ? (
+    <button
+      className={small ? "link-btn" : "btn btn-primary btn-sm"}
+      type="button"
+      onClick={() => confirm(`Hiện kết quả của mọi bài trong “${name}”? Học sinh và phụ huynh sẽ thấy điểm, đáp án và nhận xét ngay.`) && onChange(false)}
+    >
+      {small ? "Hiện kết quả" : "📣 Hiện kết quả"}
+    </button>
+  ) : (
+    <button
+      className={small ? "link-btn" : "btn btn-ghost btn-sm"}
+      type="button"
+      onClick={() => confirm(`Ẩn kết quả của mọi bài trong “${name}”? Học sinh nộp bài sẽ chỉ thấy “đã nộp”, không thấy điểm.`) && onChange(true)}
+    >
+      {small ? "Ẩn kết quả" : "🔒 Ẩn kết quả với học sinh"}
+    </button>
   );
 }

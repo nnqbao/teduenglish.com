@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type QueryCtx } from "./_generated/server";
-import { folderBySlug, getSettings, randomToken, sha256 } from "./lib";
+import { folderBySlug, getSettings, heldFolders, randomToken, resultsHeld, sha256 } from "./lib";
 import { SPEAKING_CRITERIA, SPEAKING_REVIEW_KEY, WRITING_CRITERIA, hasSpeak, normCode, percent, type IeltsSkill } from "./model";
 import { attemptBand, parentByCode, progressFor, skillOf } from "./stats";
 
@@ -76,14 +76,15 @@ export const overview = query({
       best: { correct: number; total: number; pct: number } | null;
       band: number | null;
       writing: { status: "pending" | "done"; essays: { prompt: string; band: number | null; criteria: { name: string; band: number }[]; comment: string }[] } | null;
-      /** A scheduled exam whose results the teacher hasn't released yet. */
+      /** A scheduled exam whose results the teacher hasn't released yet, or a quiz in a folder with results hidden. */
       held: boolean;
     }[] = [];
+    const held = await heldFolders(ctx);
     for (const [quizId, list] of byQuiz) {
       const q = await ctx.db.get(quizId as Doc<"quizzes">["_id"]);
       if (!q) continue;
       const skill = skillOf(q);
-      if (q.exam && !q.exam.releasedAt) {
+      if (resultsHeld(q, held)) {
         results.push({
           id: q.slug,
           title: q.title,

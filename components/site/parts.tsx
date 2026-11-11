@@ -102,6 +102,7 @@ export function LoginForm({ ctx }: { ctx: string }) {
 
 /** "8/10", or the essay marking state for writing-only quizzes. */
 export function doneLabel(rec: DoneMap[string]): string {
+  if (rec.hidden) return "chờ công bố kết quả";
   if (rec.review === "done") return rec.total ? `${rec.best}/${rec.total} · Có nhận xét ✓` : "Có nhận xét ✓";
   if (rec.review === "pending") return rec.total ? `${rec.best}/${rec.total} · Chờ nhận xét` : "Đã nộp · chờ nhận xét";
   return `${rec.best}/${rec.total}`;

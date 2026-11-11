@@ -524,6 +524,14 @@ export default function Guide() {
                   </div>
                 </li>
                 <li>
+                  <span className="pin">🙈</span>
+                  <div>
+                    <b>Ẩn kết quả cả thư mục</b>: tuần thi thử? Trong trang <b>Thư mục</b>, bấm <b>Ẩn kết quả</b> ở thư mục đó (ví dụ “Test IELTS”). Học sinh vẫn làm và nộp mọi bài
+                    trong thư mục, nhưng chỉ thấy “✓ Em đã nộp bài”, không thấy điểm, band, đáp án hay nhận xét; phụ huynh và bảng xếp hạng cũng chưa thấy. Thầy cô vẫn xem đầy đủ ở
+                    trang Kết quả. Khi muốn công bố, bấm <b>Hiện kết quả</b> là các em thấy ngay.
+                  </div>
+                </li>
+                <li>
                   <span className="pin">★</span>
                   <div>
                     <b>Nổi bật</b>: bài được đưa lên đầu trang học sinh với nút “Vào làm bài” to rõ.

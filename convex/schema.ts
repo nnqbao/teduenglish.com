@@ -88,6 +88,8 @@ export default defineSchema({
     name: v.string(),
     detail: v.string(),
     order: v.number(),
+    // Mock-test weeks: students and parents see "handed in" but no score, answers or marks until turned off.
+    hideResults: v.optional(v.boolean()),
   }).index("by_slug", ["slug"]),
 
   students: defineTable({

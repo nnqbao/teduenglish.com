@@ -146,6 +146,13 @@ export async function allFolders(ctx: Ctx) {
   return rows.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 }
 
+/** Slugs of folders whose results are hidden from students and parents. */
+export async function heldFolders(ctx: Ctx): Promise<Set<string>> {
+  return new Set((await ctx.db.query("folders").collect()).filter((f) => f.hideResults).map((f) => f.slug));
+}
+
+export { resultsHeld } from "./model";
+
 export function canOpen(student: Doc<"students"> | null, folder: string) {
   if (!student) return false;
   return student.folders.includes("*") || student.folders.includes(folder);

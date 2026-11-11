@@ -220,6 +220,11 @@ export function bandFor(kind: IeltsSkill | undefined | null, correct: number, to
   return 0;
 }
 
+/** Results kept from students and parents: a scheduled exam not yet released, or a quiz in a folder with results hidden. */
+export function resultsHeld(quiz: { folder: string; exam?: { releasedAt?: number } | null }, held: Set<string>): boolean {
+  return (!!quiz.exam && !quiz.exam.releasedAt) || held.has(quiz.folder);
+}
+
 export function hasEssay(sections: { questions: { type: string }[] }[]): boolean {
   return sections.some((s) => s.questions.some((q) => q.type === "essay"));
 }

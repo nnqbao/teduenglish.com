@@ -10,6 +10,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { slugify } from "@/convex/model";
 import { errMsg } from "@/lib/ui";
 import { Modal, useAdmin, useRun } from "./AdminShell";
+import { ResultsToggle } from "./FolderDetail";
 
 type Folder = FunctionReturnType<typeof api.admin.folders>[number];
 
@@ -19,6 +20,7 @@ export default function Folders() {
   const folders = useQuery(api.admin.folders, { token });
   const move = useMutation(api.admin.moveFolder);
   const del = useMutation(api.admin.deleteFolder);
+  const setResultsHidden = useMutation(api.admin.setFolderResultsHidden);
   const [editing, setEditing] = useState<Folder | "new" | null>(null);
   const router = useRouter();
   const open = (f: Folder) => router.push(`/admin/thu-muc/${encodeURIComponent(f.slug)}`);
@@ -78,7 +80,10 @@ export default function Folders() {
                     <Link href={`/admin/thu-muc/${encodeURIComponent(f.slug)}`}>
                       <b>{f.name}</b>
                     </Link>
-                    <span className="sub">{f.detail}</span>
+                    <span className="sub">
+                      {f.hideResults && <b className="results-off">🔒 Đang ẩn kết quả · </b>}
+                      {f.detail}
+                    </span>
                   </td>
                   <td>
                     <code>{f.slug}</code>
@@ -94,6 +99,12 @@ export default function Folders() {
                       <button className="link-btn" type="button" onClick={() => setEditing(f)}>
                         Sửa
                       </button>
+                      <ResultsToggle
+                        small
+                        hidden={f.hideResults}
+                        name={f.name}
+                        onChange={(h) => run(() => setResultsHidden({ token, id: f._id, hidden: h }), h ? `Đã ẩn kết quả “${f.name}”.` : `Đã hiện kết quả “${f.name}”.`)}
+                      />
                       <button
                         className="link-btn danger"
                         type="button"

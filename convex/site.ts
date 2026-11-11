@@ -5,6 +5,8 @@ import { selfReviewValidator } from "./schema";
 import {
   STUDENT_SESSION_MS,
   allFolders,
+  heldFolders,
+  resultsHeld,
   canOpen,
   fail,
   folderBySlug,
@@ -87,7 +89,7 @@ export const home = query({
         openFolders: open,
         quizzes,
         resources: await Promise.all(resources.map((r) => studentResource(ctx, r))),
-        done: doneMap(scores, cards, settings.lockAtPercent),
+        done: doneMap(scores, cards, settings.lockAtPercent, new Set(folders.filter((f) => f.hideResults).map((f) => f.slug))),
         progress: progressOf(student, folders, cards, new Set(scores.map((s) => s.quizId))),
         unfinished: await unfinishedFor(ctx, student._id, open, settings.lockAtPercent, cards, scores),
       },
@@ -124,7 +126,7 @@ export const folder = query({
       status: "ok" as const,
       quizzes: quizzes.map(metaOf),
       resources: await Promise.all(resources.map((r) => studentResource(ctx, r))),
-      done: doneMap(await scoresOf(ctx, student._id), quizzes, (await getSettings(ctx)).lockAtPercent),
+      done: doneMap(await scoresOf(ctx, student._id), quizzes, (await getSettings(ctx)).lockAtPercent, new Set(f.hideResults ? [f.slug] : [])),
     };
   },
 });
@@ -154,7 +156,7 @@ export const quiz = query({
     if (!quiz) return null;
     const f = await folderBySlug(ctx, quiz.folder);
     const { lockAtPercent } = await getSettings(ctx);
-    const meta = { ...quizMeta(quiz), folderName: f?.name ?? "", published: quiz.published, lockAtPercent };
+    const meta = { ...quizMeta(quiz), folderName: f?.name ?? "", published: quiz.published, lockAtPercent, resultsHidden: !!f?.hideResults };
     const student = await studentFromToken(ctx, args.token);
     if (!student || !canOpen(student, quiz.folder) || !quiz.published) {
       if (await previewAdmin(ctx, args.adminToken)) return { meta, status: "ok" as const, preview: true, guardUsed: 0, sections: await publicSections(ctx, quiz) };
@@ -179,7 +181,7 @@ export const quiz = query({
           .first();
         if (!started || !examAccepts(quiz.exam, Date.now())) return { meta, status: "examClosed" as const };
       }
-    } else if (score && isLocked(score, lockAtPercent))
+    } else if (score && !f?.hideResults && isLocked(score, lockAtPercent))
       return { meta, status: "mastered" as const, best: { correct: Math.round((score.openPct / 100) * score.total), total: score.total, at: score.lastAt } };
     if (quiz.code) {
       const unlocked = await ctx.db
@@ -205,7 +207,7 @@ export const writing = query({
       .filter((a) => a.quizId === quiz._id && a.reviewStatus)
       .slice(0, 10);
     // A scheduled exam shows the teacher's marks only once results are released.
-    const held = !!quiz.exam && !quiz.exam.releasedAt;
+    const held = resultsHeld(quiz, await heldFolders(ctx));
     return Promise.all(attempts.map(async (a) => ({
       id: a._id,
       submittedAt: a.submittedAt,
@@ -406,10 +408,11 @@ export const submit = mutation({
     const preview = !studentMayTake && !!(await previewAdmin(ctx, args.adminToken));
     if (!studentMayTake && !preview) fail(student ? "Không tìm thấy bài này." : "Phiên đăng nhập đã hết hạn, em đăng nhập lại để nộp bài.");
     const { lockAtPercent } = await getSettings(ctx);
+    const folderHidden = !!(await folderBySlug(ctx, quiz.folder))?.hideResults;
     if (!preview && quiz.exam) {
       if (await scoreOf(ctx, student!._id, quiz._id)) fail("Em đã nộp bài thi này rồi, mỗi em chỉ được làm 1 lần.");
       if (!examAccepts(quiz.exam, Date.now())) fail(quiz.exam.phase === "upcoming" ? "Bài thi chưa mở." : "Bài thi đã đóng, không nộp được nữa.");
-    } else if (!preview && isLocked(await scoreOf(ctx, student!._id, quiz._id), lockAtPercent))
+    } else if (!preview && !folderHidden && isLocked(await scoreOf(ctx, student!._id, quiz._id), lockAtPercent))
       fail(`Em đã hoàn thành bài này từ ${lockAtPercent}% trở lên nên bài đã được khoá.`);
     if (!preview && quiz.code) {
       const unlocked = await ctx.db
@@ -437,8 +440,8 @@ export const submit = mutation({
       await refreshScore(ctx, student!._id, quiz._id);
     }
 
-    // Scheduled exam before the teacher releases results: say it's in, show nothing else.
-    if (!preview && quiz.exam && !quiz.exam.releasedAt)
+    // Scheduled exam before the teacher releases results, or a folder with results hidden: say it's in, show nothing else.
+    if (!preview && ((quiz.exam && !quiz.exam.releasedAt) || folderHidden))
       return { result: { correct: 0, total: 0, wrong: 0, unanswered: 0, band: null }, review: {}, submittedAt: now, preview, essayPending: false, examHidden: true };
     return { result: { ...result, band }, review: reviewOf(quiz, answers, preview), submittedAt: now, preview, essayPending: wroteEssay && !preview, examHidden: false };
   },

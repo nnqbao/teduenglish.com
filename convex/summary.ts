@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { attemptBand, focusGuardOn, requireAdmin, skillOf, type DoneRecord } from "./lib";
+import { attemptBand, focusGuardOn, requireAdmin, resultsHeld, skillOf, type DoneRecord } from "./lib";
 import { hasEssay, hasSpeak, questionCount } from "./model";
 import { mutation } from "./_generated/server";
 
@@ -116,15 +116,16 @@ export async function scoreOf(ctx: Ctx, studentId: Id<"students">, quizId: Id<"q
 }
 
 /** The student's results by quiz slug, for the dashboard and folder pages. */
-export function doneMap(scores: Score[], cards: Card[], lockAtPercent: number): Record<string, DoneRecord> {
+export function doneMap(scores: Score[], cards: Card[], lockAtPercent: number, heldFolders: Set<string>): Record<string, DoneRecord> {
   const slugOf = new Map(cards.map((c) => [c.quizId, c.slug]));
   const map: Record<string, DoneRecord> = {};
   for (const s of scores) {
     const slug = slugOf.get(s.quizId);
     if (!slug) continue;
     const card = cards.find((c) => c.quizId === s.quizId);
-    if (card?.exam && !card.exam.releasedAt) {
-      map[slug] = { best: 0, last: 0, total: 0, at: s.lastAt, count: s.count, review: null, locked: true, band: null, hidden: true };
+    if (card && resultsHeld(card, heldFolders)) {
+      // Exams take one attempt; a folder with results hidden still lets students try again.
+      map[slug] = { best: 0, last: 0, total: 0, at: s.lastAt, count: s.count, review: null, locked: !!card.exam, band: null, hidden: true };
       continue;
     }
     map[slug] = { best: s.best, last: s.last, total: s.total, at: s.lastAt, count: s.count, review: s.review ?? null, locked: !!card?.exam || isLocked(s, lockAtPercent), band: s.band ?? null, hidden: false };
